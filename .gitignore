@@ -65,9 +65,10 @@ find_tableswitch.py
 fix_menuTemplate.py
 fix_struts.py
 patch_bytecode.py
-MessageResources.properties
 analyzerTestName.txt
 *.deb
 user_guide_screenshots/
 test_shot.png
 scratch/
+
+/MessageResources.properties
