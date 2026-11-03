@@ -596,8 +596,7 @@ services:
 
 
   orthanc:
-    image: ${ORTHANC_IMAGE:-bahmni/orthanc:local-dicomweb}
-    pull_policy: never
+    image: ${ORTHANC_IMAGE:-jodogne/orthanc-plugins:1.12.4}
     profiles: ["pacs","bahmni-standard"]
     environment:
       TZ: ${TZ}
