@@ -47,22 +47,22 @@ echo ""
 bash "$SCRIPT_DIR/restore_bahmni_patient-documents.sh"
 echo ""
 
-bash "$SCRIPT_DIR/restore_selamsew_bahmni-web.sh"
+bash "$SCRIPT_DIR/restore_bini_bahmni-web.sh"
 echo ""
 
-bash "$SCRIPT_DIR/restore_selamsew_openmrs.sh"
+bash "$SCRIPT_DIR/restore_bini_openmrs.sh"
 echo ""
 
-bash "$SCRIPT_DIR/restore_selamsew_openelis.sh"
+bash "$SCRIPT_DIR/restore_bini_openelis.sh"
 echo ""
 
-bash "$SCRIPT_DIR/restore_selamsew_odoo-16.sh"
+bash "$SCRIPT_DIR/restore_bini_odoo-16.sh"
 echo ""
 
-bash "$SCRIPT_DIR/restore_selamsew_global_property.sh"
+bash "$SCRIPT_DIR/restore_bini_global_property.sh"
 echo ""
 
-bash "$SCRIPT_DIR/restore_selamsew_lab-result-sync.sh"
+bash "$SCRIPT_DIR/restore_bini_lab-result-sync.sh"
 echo ""
 
 bash "$SCRIPT_DIR/restore_mysql.sh"

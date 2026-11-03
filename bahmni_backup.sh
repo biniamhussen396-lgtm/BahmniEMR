@@ -124,7 +124,7 @@ echo "" | tee -a "$LOG"
 echo "--- DOCKER IMAGE BACKUPS ---" | tee -a "$LOG"
 
 IMAGE_LIST=(
-  "selamsew/openmrs:1.1.1-uog-1.0.2"
+  "bahmni/openmrs:1.1.1-bi-1.0.2"
   "bahmni/odoo-16:1.0.0-bi-1.0.3"
   "bahmni/openelis:1.0.0-bi-1.0.0"
   "bahmni/bahmni-web:1.1.0-bi-1.0.0"

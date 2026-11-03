@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Usage: bash restore_selamsew_openmrs.sh
+# Usage: bash restore_bini_openmrs.sh
 
-IMAGE="selamsew_openmrs:1.1.1-uog-1.0.2"
+IMAGE="bahmni_openmrs:1.1.1-bi-1.0.2"
 BACKUP_DIR="$(dirname "$0")/../../backups/bahmni"
-FILE="$BACKUP_DIR/images/selamsew_openmrs_1.1.1-uog-1.0.2.tar.gz"
+FILE="$BACKUP_DIR/images/bahmni_openmrs_1.1.1-bi-1.0.2.tar.gz"
 
 echo "=== Image Restore: $IMAGE ==="
 

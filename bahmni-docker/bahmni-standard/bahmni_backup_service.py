@@ -180,7 +180,7 @@ def dump_modules(target_dir):
     modules_dir = os.path.join(target_dir, "modules")
     os.makedirs(modules_dir, exist_ok=True)
     images = [
-        "selamsew/openmrs:1.1.1-uog-1.0.2",
+        "bahmni/openmrs:1.1.1-bi-1.0.2",
         "bahmni/odoo-16:1.0.0-bi-1.0.3",
         "bahmni/openelis:1.0.0-bi-1.0.0",
         "bahmni/bahmni-web:1.1.0-bi-1.0.0",

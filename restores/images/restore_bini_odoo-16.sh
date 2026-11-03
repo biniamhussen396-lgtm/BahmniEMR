@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Usage: bash restore_selamsew_odoo-16.sh
+# Usage: bash restore_bini_odoo-16.sh
 
-IMAGE="selamsew_odoo-16:1.0.0-uog-1.0.3"
+IMAGE="bahmni_odoo-16:1.0.0-bi-1.0.3"
 BACKUP_DIR="$(dirname "$0")/../../backups/bahmni"
-FILE="$BACKUP_DIR/images/selamsew_odoo-16_1.0.0-uog-1.0.3.tar.gz"
+FILE="$BACKUP_DIR/images/bahmni_odoo-16_1.0.0-bi-1.0.3.tar.gz"
 
 echo "=== Image Restore: $IMAGE ==="
 

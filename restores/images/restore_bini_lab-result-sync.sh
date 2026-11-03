@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Usage: bash restore_selamsew_lab-result-sync.sh
+# Usage: bash restore_bini_lab-result-sync.sh
 
-IMAGE="selamsew_lab-result-sync:1.0.2-remove-validation"
+IMAGE="bahmni_lab-result-sync:1.0.2-remove-validation"
 BACKUP_DIR="$(dirname "$0")/../../backups/bahmni"
-FILE="$BACKUP_DIR/images/selamsew_lab-result-sync_1.0.2-remove-validation.tar.gz"
+FILE="$BACKUP_DIR/images/bahmni_lab-result-sync_1.0.2-remove-validation.tar.gz"
 
 echo "=== Image Restore: $IMAGE ==="
 

@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Usage: bash restore_selamsew_openelis.sh
+# Usage: bash restore_bini_openelis.sh
 
-IMAGE="selamsew_openelis:1.0.0-uog-1.0.5"
+IMAGE="bahmni_openelis:1.0.0-bi-1.0.0"
 BACKUP_DIR="$(dirname "$0")/../../backups/bahmni"
-FILE="$BACKUP_DIR/images/selamsew_openelis_1.0.0-uog-1.0.5.tar.gz"
+FILE="$BACKUP_DIR/images/bahmni_openelis_1.0.0-bi-1.0.0.tar.gz"
 
 echo "=== Image Restore: $IMAGE ==="
 

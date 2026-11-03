@@ -34,7 +34,7 @@ services:
       TZ: ${TZ}
 
 #  bahmni-config:
-#    image: 'selamsew/config:${CONFIG_IMAGE_TAG:?}'
+#    image: 'bahmni/config:${CONFIG_IMAGE_TAG:?}'
 #    volumes:
 #      - '${CONFIG_VOLUME:?}:/usr/local/bahmni_config'
 #    logging: *log-config
@@ -302,7 +302,7 @@ services:
       - 'bahmni-clinical-forms:/home/bahmni/clinical_forms'
       - 'configuration_checksums:/openmrs/data/configuration_checksums'
       - 'sms-token:/openmrs/data/sms-token'
-      # - '/home/selamsew/Bahmni_Docker/openmrs_binds/WEB-INF:/usr/local/tomcat/webapps/openmrs/WEB-INF'
+      # - '/opt/BahmniEMR/openmrs_binds/WEB-INF:/usr/local/tomcat/webapps/openmrs/WEB-INF'
     depends_on:
       - openmrsdb
     logging: *log-config

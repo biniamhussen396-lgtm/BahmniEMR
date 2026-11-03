@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Usage: bash restore_selamsew_global_property.sh
+# Usage: bash restore_bini_global_property.sh
 
-IMAGE="selamsew_global_property:uog-1.0.2"
+IMAGE="bahmni_global_property:bi-1.0.2"
 BACKUP_DIR="$(dirname "$0")/../../backups/bahmni"
-FILE="$BACKUP_DIR/images/selamsew_global_property_uog-1.0.2.tar.gz"
+FILE="$BACKUP_DIR/images/bahmni_global_property_bi-1.0.2.tar.gz"
 
 echo "=== Image Restore: $IMAGE ==="
 
