@@ -1,4 +1,4 @@
-version: '3.7'
+# Bahmni Standard Docker Compose
 
 x-default-logging: &default
   {}
@@ -42,6 +42,7 @@ services:
 
   openelis:
     profiles: ["openelis","bahmni-standard"]
+    pull_policy: never
     ports:
       - '8052:8052'  
     image: 'bahmni/openelis:${OPENELIS_IMAGE_TAG:?[ERROR]}'
@@ -118,6 +119,7 @@ services:
 
   odoo:
     profiles: ["odoo","bahmni-standard"]
+    pull_policy: never
     image: 'bahmni/odoo-16:${ODOO_IMAGE_TAG:?[ERROR]}'
     ports:
       - '8069:8069'
@@ -328,12 +330,14 @@ services:
 
   globalp:
     image: bahmni/global_property:bi-1.0.2
+    pull_policy: never
     restart: always
     profiles: ["emr","bahmni-standard", "metabase", "bahmni-mart"]
     ports:
       - "5000:5000"
   lab-result-sync:
     image: bahmni/lab-result-sync:1.0.2-remove-validation
+    pull_policy: never
     restart: always
     container_name: lab-result-sync
     depends_on:
@@ -430,6 +434,7 @@ services:
 
   bahmni-web:
     image: bahmni/bahmni-web:${BAHMNI_WEB_IMAGE_TAG:?}
+    pull_policy: never
     profiles: ["emr","bahmni-standard","bahmni-mart"]
     volumes:
       - "${CONFIG_VOLUME:?}:/usr/local/apache2/htdocs/bahmni_config/:ro"
@@ -592,6 +597,7 @@ services:
 
   orthanc:
     image: ${ORTHANC_IMAGE:-bahmni/orthanc:local-dicomweb}
+    pull_policy: never
     profiles: ["pacs","bahmni-standard"]
     environment:
       TZ: ${TZ}
@@ -606,6 +612,7 @@ services:
 
   ohif-viewer:
     image: ${OHIF_VIEWER_IMAGE:-bahmni/ohif:local-patched}
+    pull_policy: never
     profiles: ["pacs","bahmni-standard"]
     environment:
       TZ: ${TZ}
