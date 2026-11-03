@@ -7,11 +7,11 @@ import openpyxl
 from datetime import datetime
 
 DB_CONFIG = {
-    "host": "localhost",
-    "port": 3306,
-    "user": "root",
-    "password": "adminAdmin!123",
-    "database": "openmrs",
+    "host": os.environ.get("OPENMRS_DB_HOST", "127.0.0.1"),
+    "port": int(os.environ.get("OPENMRS_DB_PORT", 3206 if os.name == "nt" else 3306)),
+    "user": os.environ.get("OPENMRS_DB_USER", "root"),
+    "password": os.environ.get("OPENMRS_DB_PASSWORD", "adminAdmin!123"),
+    "database": os.environ.get("OPENMRS_DB_NAME", "openmrs"),
     "charset": "utf8mb4"
 }
 
@@ -36,10 +36,11 @@ def parse_dob(dob_raw):
             return f"{max(1900, approx_yr)}-01-01", 1
         return "1985-01-01", 1
 
-def run_excel_import():
-    excel_path = "/home/kphcs/Documents/KPHCsmartcarePT.xlsx"
+def run_excel_import(excel_path=None):
+    if not excel_path:
+        excel_path = sys.argv[1] if len(sys.argv) > 1 else "/home/kphcs/Documents/KPHCsmartcarePT.xlsx"
     if not os.path.exists(excel_path):
-        print(f"[!] File not found: {excel_path}")
+        print(f"[!] File not found: {excel_path}", flush=True)
         sys.exit(1)
 
     print("[*] Connecting to OpenMRS MySQL container...")

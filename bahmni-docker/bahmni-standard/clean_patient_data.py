@@ -222,35 +222,55 @@ def restart_services():
 
 
 def main():
-    print("==========================================================")
-    print("      BAHMNI / OPENMRS PATIENT DATA PURGE & REPAIR        ")
-    print("==========================================================")
-    print("Options:")
-    print("  1. Purge ALL patients (Full Reset)")
-    print("  2. Purge starting from a specific MRN / Identifier (Keep earlier records)")
-    choice = input("\nEnter choice [1 or 2]: ").strip()
+    import argparse
+    parser = argparse.ArgumentParser(description="BAHMNI / OPENMRS PATIENT DATA PURGE & REPAIR")
+    parser.add_argument("--mode", choices=["1", "2"], help="1: Purge ALL, 2: Selective Purge")
+    parser.add_argument("--start-mrn", help="Starting MRN if mode 2")
+    parser.add_argument("--confirm", help="Must be 'PURGE'")
+    parser.add_argument("--starting-mrn", type=int, default=200000, help="Desired starting number for Auto-MRN sequence")
+    args = parser.parse_args()
 
-    start_mrn = None
-    if choice == "2":
-        start_mrn = input("Enter starting MRN/Identifier to delete from (e.g. 100000): ").strip()
-        if not start_mrn:
-            print("Invalid MRN provided. Aborting.")
+    if args.mode:
+        choice = args.mode
+        start_mrn = args.start_mrn if choice == "2" else None
+        if choice == "2" and not start_mrn:
+            print("Invalid MRN provided. Aborting.", flush=True)
             sys.exit(1)
-        confirm = input(f"Confirm deleting all patients with identifier >= '{start_mrn}'? Type 'PURGE': ").strip()
+        confirm = args.confirm or ""
+        if confirm != "PURGE":
+            print("Aborted. Confirmation required (must type 'PURGE').", flush=True)
+            sys.exit(0)
+        starting_mrn = args.starting_mrn or 200000
     else:
-        confirm = input("Confirm deleting ALL patient data? Type 'PURGE': ").strip()
+        print("==========================================================")
+        print("      BAHMNI / OPENMRS PATIENT DATA PURGE & REPAIR        ")
+        print("==========================================================")
+        print("Options:")
+        print("  1. Purge ALL patients (Full Reset)")
+        print("  2. Purge starting from a specific MRN / Identifier (Keep earlier records)")
+        choice = input("\nEnter choice [1 or 2]: ").strip()
 
-    if confirm != "PURGE":
-        print("Aborted.")
-        sys.exit(0)
+        start_mrn = None
+        if choice == "2":
+            start_mrn = input("Enter starting MRN/Identifier to delete from (e.g. 100000): ").strip()
+            if not start_mrn:
+                print("Invalid MRN provided. Aborting.")
+                sys.exit(1)
+            confirm = input(f"Confirm deleting all patients with identifier >= '{start_mrn}'? Type 'PURGE': ").strip()
+        else:
+            confirm = input("Confirm deleting ALL patient data? Type 'PURGE': ").strip()
 
-    # Prompt user for the Auto-MRN starting number
-    starting_mrn_input = input("Enter desired starting number for Auto-MRN sequence (e.g., 200000): ").strip()
-    if not starting_mrn_input.isdigit():
-        print("[!] Invalid starting number provided. Defaulting to 200000.")
-        starting_mrn = 200000
-    else:
-        starting_mrn = int(starting_mrn_input)
+        if confirm != "PURGE":
+            print("Aborted.")
+            sys.exit(0)
+
+        # Prompt user for the Auto-MRN starting number
+        starting_mrn_input = input("Enter desired starting number for Auto-MRN sequence (e.g., 200000): ").strip()
+        if not starting_mrn_input.isdigit():
+            print("[!] Invalid starting number provided. Defaulting to 200000.")
+            starting_mrn = 200000
+        else:
+            starting_mrn = int(starting_mrn_input)
 
     purge_data(start_mrn)
     fix_global_properties_and_id_search()
