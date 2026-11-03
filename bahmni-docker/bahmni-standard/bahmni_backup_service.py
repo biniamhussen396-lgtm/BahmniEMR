@@ -181,11 +181,11 @@ def dump_modules(target_dir):
     os.makedirs(modules_dir, exist_ok=True)
     images = [
         "selamsew/openmrs:1.1.1-uog-1.0.2",
-        "selamsew/odoo-16:1.0.0-uog-1.0.3",
-        "selamsew/openelis:1.0.0-uog-1.0.5",
-        "selamsew/bahmni-web:1.1.0-uog-1.0.0",
-        "selamsew/lab-result-sync:1.0.2-remove-validation",
-        "selamsew/global_property:uog-1.0.2",
+        "bahmni/odoo-16:1.0.0-bi-1.0.3",
+        "bahmni/openelis:1.0.0-bi-1.0.0",
+        "bahmni/bahmni-web:1.1.0-bi-1.0.0",
+        "bahmni/lab-result-sync:1.0.2-remove-validation",
+        "bahmni/global_property:bi-1.0.2",
         "bahmni/patient-documents:1.1.1",
         "bahmni/implementer-interface:1.1.1",
         "bahmni/reports:1.1.0",

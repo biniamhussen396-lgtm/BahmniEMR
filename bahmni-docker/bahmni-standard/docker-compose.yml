@@ -44,7 +44,7 @@ services:
     profiles: ["openelis","bahmni-standard"]
     ports:
       - '8052:8052'  
-    image: 'selamsew/openelis:${OPENELIS_IMAGE_TAG:?[ERROR]}'
+    image: 'bahmni/openelis:${OPENELIS_IMAGE_TAG:?[ERROR]}'
     volumes:
       - "${CONFIG_VOLUME:?}:/etc/bahmni_config/:ro"
       - "bahmni-lab-results:/home/bahmni/uploaded_results"
@@ -118,7 +118,7 @@ services:
 
   odoo:
     profiles: ["odoo","bahmni-standard"]
-    image: 'selamsew/odoo-16:${ODOO_IMAGE_TAG:?[ERROR]}'
+    image: 'bahmni/odoo-16:${ODOO_IMAGE_TAG:?[ERROR]}'
     ports:
       - '8069:8069'
     volumes:
@@ -327,13 +327,13 @@ services:
     logging: *log-config
 
   globalp:
-    image: selamsew/global_property:uog-1.0.2
+    image: bahmni/global_property:bi-1.0.2
     restart: always
     profiles: ["emr","bahmni-standard", "metabase", "bahmni-mart"]
     ports:
       - "5000:5000"
   lab-result-sync:
-    image: selamsew/lab-result-sync:1.0.2-remove-validation
+    image: bahmni/lab-result-sync:1.0.2-remove-validation
     restart: always
     container_name: lab-result-sync
     depends_on:
@@ -429,7 +429,7 @@ services:
      - 'bahmni-clinical-forms:/home/bahmni/clinical_forms'
 
   bahmni-web:
-    image: selamsew/bahmni-web:${BAHMNI_WEB_IMAGE_TAG:?}
+    image: bahmni/bahmni-web:${BAHMNI_WEB_IMAGE_TAG:?}
     profiles: ["emr","bahmni-standard","bahmni-mart"]
     volumes:
       - "${CONFIG_VOLUME:?}:/usr/local/apache2/htdocs/bahmni_config/:ro"
