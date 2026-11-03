@@ -41,7 +41,7 @@ services:
 #    restart: ${RESTART_POLICY}
 
   openelis:
-    profiles: ["openelis","bahmni-standard"]
+    profiles: ["openelis", "bahmni-standard", "hc", "hospital"]
     pull_policy: never
     ports:
       - '8052:8052'  
@@ -97,7 +97,7 @@ services:
     restart: ${RESTART_POLICY}
 
   openelisdb:
-    profiles: ["openelis","bahmni-standard"]
+    profiles: ["openelis", "bahmni-standard", "hc", "hospital"]
     ports:
       - "5432:5432" 
     image: '${OPENELIS_DB_IMAGE_NAME:?[ERROR]}'
@@ -119,7 +119,7 @@ services:
     restart: ${RESTART_POLICY}
 
   odoo:
-    profiles: ["odoo","bahmni-standard"]
+    profiles: ["odoo", "bahmni-standard", "hc", "hospital"]
     pull_policy: never
     image: 'bahmni/odoo-16:${ODOO_IMAGE_TAG:?[ERROR]}'
     ports:
@@ -143,7 +143,7 @@ services:
     restart: ${RESTART_POLICY}
 
   odoodb:
-    profiles: ["odoo","bahmni-standard"]
+    profiles: ["odoo", "bahmni-standard", "hc", "hospital"]
     image: '${ODOO_DB_IMAGE_NAME:?[ERROR]}'
     volumes:
       - 'odoodbdata:/var/lib/postgresql/data'
@@ -163,7 +163,7 @@ services:
     restart: ${RESTART_POLICY}
 
   odoo-connect:
-    profiles: ["odoo","bahmni-standard"]
+    profiles: ["odoo", "bahmni-standard", "hc", "hospital"]
     image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG:?[ERROR]}'
     environment:
       TZ: ${TZ}
@@ -256,7 +256,7 @@ services:
     restart: ${RESTART_POLICY}
 
   openmrs:
-    profiles: ["emr","bahmni-standard", "bahmni-mart"]
+    profiles: ["emr", "bahmni-standard", "hc", "hospital", "bahmni-mart"]
     image: bahmni/openmrs:${OPENMRS_IMAGE_TAG:?}
     environment:
       TZ: ${TZ}
@@ -315,7 +315,7 @@ services:
   openmrsdb:
     image: ${OPENMRS_DB_IMAGE_NAME:?}
     restart: always
-    profiles: ["emr","bahmni-standard", "metabase", "bahmni-mart"]
+    profiles: ["emr", "bahmni-standard", "hc", "hospital", "metabase", "bahmni-mart"]
     command: "--sql-mode=${OPENMRS_DB_SQL_MODES:?}"
     environment:
       TZ: ${TZ}
@@ -334,12 +334,13 @@ services:
     image: bahmni/global_property:bi-1.0.2
     pull_policy: never
     restart: always
-    profiles: ["emr","bahmni-standard", "metabase", "bahmni-mart"]
+    profiles: ["emr", "bahmni-standard", "hc", "hospital", "metabase", "bahmni-mart"]
     ports:
       - "5000:5000"
   lab-result-sync:
     image: bahmni/lab-result-sync:1.0.2-remove-validation
     pull_policy: never
+    profiles: ["openelis", "bahmni-standard", "hc", "hospital"]
     restart: always
     container_name: lab-result-sync
     depends_on:
@@ -437,7 +438,7 @@ services:
   bahmni-web:
     image: bahmni/bahmni-web:${BAHMNI_WEB_IMAGE_TAG:?}
     pull_policy: never
-    profiles: ["emr","bahmni-standard","bahmni-mart"]
+    profiles: ["emr", "bahmni-standard", "hc", "hospital", "bahmni-mart"]
     volumes:
       - "${CONFIG_VOLUME:?}:/usr/local/apache2/htdocs/bahmni_config/:ro"
       - "${BAHMNI_APPS_PATH:?}/ui/app/:/usr/local/apache2/htdocs/bahmni"
@@ -447,7 +448,7 @@ services:
 
   implementer-interface:
     image: bahmni/implementer-interface:${IMPLEMENTER_INTERFACE_IMAGE_TAG:?}
-    profiles: ["implementer-interface","emr","bahmni-standard"]
+    profiles: ["implementer-interface", "emr", "bahmni-standard", "hc", "hospital"]
     #volumes:
     #  - "${IMPLEMENTER_INTERFACE_CODE_PATH:?}/dist:/usr/local/apache2/htdocs/implementer_interface"
     depends_on:
@@ -457,7 +458,7 @@ services:
 
   reports:
     image: bahmni/reports:${REPORTS_IMAGE_TAG:?}
-    profiles: ["reports","bahmni-standard"]
+    profiles: ["reports", "bahmni-standard", "hc", "hospital"]
     environment:
       TZ: ${TZ}
       OPENMRS_DB_HOST: ${OPENMRS_DB_HOST:?}
@@ -490,7 +491,7 @@ services:
   reportsdb:
     platform: linux/amd64
     image: ${REPORTS_DB_IMAGE_NAME:?}
-    profiles: ["reports","bahmni-standard"]
+    profiles: ["reports", "bahmni-standard", "hc", "hospital"]
     environment:
       TZ: ${TZ}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
@@ -504,7 +505,7 @@ services:
 
   patient-documents:
     image: 'bahmni/patient-documents:${PATIENT_DOCUMENTS_TAG:?}'
-    profiles: ["emr","bahmni-standard"]
+    profiles: ["emr", "bahmni-standard", "hc", "hospital"]
     volumes:
       - '../../bahmni-docker/bahmni-standard/patient-documents-nginx.conf:/etc/nginx/templates/default.conf.template'
       - 'bahmni-document-images:/usr/share/nginx/html/document_images'
@@ -520,14 +521,14 @@ services:
 
   appointments:
     image: bahmni/appointments:${APPOINTMENTS_IMAGE_TAG:?}
-    profiles: ["emr","bahmni-standard"]
+    profiles: ["emr", "bahmni-standard", "hc", "hospital"]
     restart: ${RESTART_POLICY}
     # volumes:
     # - "${APPOINTMENTS_PATH:?}/dist/:/usr/local/apache2/htdocs/appointments"
 
   dcm4chee:
     image: bahmni/dcm4chee:${DCM4CHEE_IMAGE_TAG:?}
-    profiles: ["pacs","bahmni-standard"]
+    profiles: ["pacs", "hospital"]
     environment:
       TZ: ${TZ}
       DB_HOST: ${PACS_DB_HOST:?}
@@ -546,7 +547,7 @@ services:
 
   pacs-integration:
     image: bahmni/pacs-integration:${PACS_INTEGRATION_IMAGE_TAG:?}
-    profiles: ["pacs","bahmni-standard"]
+    profiles: ["pacs", "hospital"]
     environment:
       TZ: ${TZ}
       DB_HOST: ${PACS_DB_HOST:?}
@@ -563,7 +564,7 @@ services:
 
   pacsdb:
     image: postgres:9.6
-    profiles: ["pacs","bahmni-standard"]
+    profiles: ["pacs", "hospital"]
     environment:
       TZ: ${TZ}
       POSTGRES_PASSWORD: ${PACS_DB_ROOT_PASSWORD}
@@ -599,7 +600,7 @@ services:
 
   orthanc:
     image: ${ORTHANC_IMAGE:-jodogne/orthanc-plugins:1.12.4}
-    profiles: ["pacs","bahmni-standard"]
+    profiles: ["pacs", "hospital"]
     environment:
       TZ: ${TZ}
     ports:
@@ -613,7 +614,7 @@ services:
 
   ohif-viewer:
     image: ${OHIF_VIEWER_IMAGE:-ohif/app:latest}
-    profiles: ["pacs","bahmni-standard"]
+    profiles: ["pacs", "hospital"]
     environment:
       TZ: ${TZ}
     ports:
@@ -626,7 +627,7 @@ services:
 
   atomfeed-console:
     image: bahmni/atomfeed-console:${ATOMFEED_CONSOLE_IMAGE_TAG:?}
-    profiles: ["atomfeed-console"]
+    profiles: ["atomfeed-console", "bahmni-standard", "hc", "hospital"]
     restart: ${RESTART_POLICY}
     environment:
       TZ: ${TZ}
@@ -680,7 +681,7 @@ services:
   ipd:
     image: bahmni/microfrontend-ipd:${IPD_TAG:?}
     container_name: ipd
-    profiles: ["emr","bahmni-standard","bahmni-mart"]
+    profiles: ["emr", "bahmni-standard", "hc", "hospital", "bahmni-mart"]
     restart: ${RESTART_POLICY}
     # volumes:
     #   - "${IPD_PATH:?}/dist/federation/:/usr/local/apache2/htdocs/ipd"
@@ -697,7 +698,7 @@ services:
   #  Ollama (Local LLM Server) — runs inside Docker
   # ──────────────────────────────────────────────────────────────
   ollama:
-    profiles: ["bahmni-standard"]
+    profiles: ["ai", "hospital"]
     image: ollama/ollama:latest
     ports:
       - '11434:11434'
@@ -709,7 +710,7 @@ services:
     restart: ${RESTART_POLICY}
 
   ollama-init:
-    profiles: ["bahmni-standard"]
+    profiles: ["ai", "hospital"]
     image: ollama/ollama:latest
     depends_on:
       - ollama
@@ -722,7 +723,7 @@ services:
   #  Works with either Docker Ollama or host Ollama.
   # ──────────────────────────────────────────────────────────────
   assistant:
-    profiles: ["bahmni-standard"]
+    profiles: ["ai", "hospital"]
     build:
       context: ../../
       dockerfile: Dockerfile
@@ -751,7 +752,7 @@ services:
     restart: ${RESTART_POLICY}
 
   backup-service:
-    profiles: ["bahmni-standard"]
+    profiles: ["bahmni-standard", "hc", "hospital"]
     build:
       context: .
       dockerfile: Dockerfile.backup
@@ -774,7 +775,7 @@ services:
     restart: ${RESTART_POLICY}
 
   prescription-sync:
-    profiles: ["bahmni-standard"]
+    profiles: ["bahmni-standard", "hc", "hospital"]
     build:
       context: ../../prescription-sync-service
       dockerfile: Dockerfile
@@ -803,7 +804,7 @@ services:
     restart: ${RESTART_POLICY}
 
   emr-eapts:
-    profiles: ["bahmni-standard"]
+    profiles: ["bahmni-standard", "hc", "hospital"]
     build:
       context: ../../emr-eAPTs
       dockerfile: Dockerfile
