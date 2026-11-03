@@ -105,10 +105,11 @@ services:
       - '${OPENELIS_DB_DUMP_PATH}:/resources/db-dump'
       - 'openelisdbdata:/var/lib/postgresql/data'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -h localhost -U clinlims']
+      test: ['CMD-SHELL', 'pg_isready -U clinlims -d clinlims || pg_isready -h 127.0.0.1 -U clinlims -d clinlims']
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 20
+      start_period: 60s
     environment:
       TZ: ${TZ}
       POSTGRES_USER: ${OPENELIS_DB_USER:?}
@@ -148,10 +149,11 @@ services:
       - 'odoodbdata:/var/lib/postgresql/data'
       - 'odoofilestore:/filestore:ro'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -h localhost -U odoo']
+      test: ['CMD-SHELL', 'pg_isready -U odoo -d odoo || pg_isready -h 127.0.0.1 -U odoo -d odoo']
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 60s
     environment:
       TZ: ${TZ}
       POSTGRES_DB: ${ODOO_DB_NAME:?}
