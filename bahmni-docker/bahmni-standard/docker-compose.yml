@@ -610,8 +610,7 @@ services:
     restart: ${RESTART_POLICY}
 
   ohif-viewer:
-    image: ${OHIF_VIEWER_IMAGE:-bahmni/ohif:local-patched}
-    pull_policy: never
+    image: ${OHIF_VIEWER_IMAGE:-ohif/app:latest}
     profiles: ["pacs","bahmni-standard"]
     environment:
       TZ: ${TZ}
