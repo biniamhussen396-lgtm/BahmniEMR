@@ -188,7 +188,7 @@ services:
 #Serivces for odoo-10. These services are used for backward compatibility with bahmni 0.93
   odoo-10:
     profiles: ["odoo-10"]
-    image: 'bahmni/odoo-10:${ODOO_IMAGE_TAG:?[ERROR]}'
+    image: 'bahmni/odoo-10:${ODOO_10_IMAGE_TAG:?[ERROR]}'
     ports:
       - '8070:8069'
     volumes:
@@ -591,7 +591,7 @@ services:
 
 
   orthanc:
-    image: bahmni/orthanc:local-dicomweb
+    image: ${ORTHANC_IMAGE:-bahmni/orthanc:local-dicomweb}
     profiles: ["pacs","bahmni-standard"]
     environment:
       TZ: ${TZ}
@@ -605,7 +605,7 @@ services:
     restart: ${RESTART_POLICY}
 
   ohif-viewer:
-    image: bahmni/ohif:local-patched
+    image: ${OHIF_VIEWER_IMAGE:-bahmni/ohif:local-patched}
     profiles: ["pacs","bahmni-standard"]
     environment:
       TZ: ${TZ}
