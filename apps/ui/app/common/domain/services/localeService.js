@@ -34,6 +34,18 @@ angular.module('bahmni.common.domain')
                 headers: {
                     Accept: 'text/plain'
                 }
+            }).then(function (response) {
+                if (response && response.data && response.data.date && Bahmni.Common.Util.DateUtil) {
+                    Bahmni.Common.Util.DateUtil.setServerDateTime(response.data.date);
+                }
+                return response;
+            }).catch(function (error) {
+                console.warn('Unable to reach serverDateTimeUrl, using fallback date:', error);
+                var fallbackDate = new Date().toISOString();
+                if (Bahmni.Common.Util.DateUtil) {
+                    Bahmni.Common.Util.DateUtil.setServerDateTime(fallbackDate);
+                }
+                return { data: { date: fallbackDate, offset: "+0000" } };
             });
         };
 

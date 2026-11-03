@@ -54,10 +54,7 @@ angular.module('bahmni.home')
                 var localtimeZone = getLocalTimeZone();
                 var localeTimeZone = localTime + " " + localtimeZone;
                 $scope.timeZoneObject = { serverTime: serverTime, localeTimeZone: localeTimeZone};
-                if (offset && !new Date().toString().includes(offset)) {
-                    $scope.warning = "Warning";
-                    $scope.warningMessage = "WARNING_SERVER_TIME_ZONE_MISMATCH";
-                }
+                // Server date and time is enforced system-wide; no mismatch warning needed
             });
 
             localeService.getLoginText().then(function (response) {

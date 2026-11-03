@@ -171,7 +171,7 @@
 
 	<script>
 		function init() {
-			serverTimeZone();
+			initServerClock();
 			getLogoAndHeaderText();
 			getApps();
 		}
@@ -191,41 +191,61 @@
 			xmlhttp.send();
 		}
 
-		function serverTimeZone() {
+		var serverOffset = 0;
+		function initServerClock() {
 			callAjax("/cgi-bin/systemdate", function (data) {
-				if (data) {
-					var serverTime = data.date;
-					var offset = data.offset;
-					var localTime = new Date().toLocaleString();
-					var localTimeZone = getLocalTimeZone();
-					if (offset && !new Date().toString().includes(offset)) {
-						var warningMessageParagraph = document.getElementsByClassName(
-							"warning-message-paragraph"
-						)[0];
-						var warningMessage = document.getElementsByClassName(
-							"warning-message-span"
-						)[0];
-						warningMessage.innerHTML =
-							"<img src='/bahmni/images/warning.png'> Warning";
-						warningMessageParagraph.innerHTML =
-							"The server timezone (" +
-							serverTime +
-							") is different from your browser's time/timezone (" +
-							localTime +
-							" " +
-							localTimeZone +
-							"). This can cause some data or reports to appear incorrect. Please contact the administrator for further assistance.";
+				if (data && data.date) {
+					var sTime = new Date(data.date).getTime();
+					if (!isNaN(sTime)) {
+						serverOffset = sTime - Date.now();
 					}
 				}
+				updateServerClock();
+				setInterval(updateServerClock, 1000);
 			});
 		}
-		var getLocalTimeZone = function () {
-			var currentLocalTime = new Date().toString();
-			var localTimeZoneList = currentLocalTime.split(" ");
-			var localTimeZone = localTimeZoneList[localTimeZoneList.length - 1];
-			localTimeZone = localTimeZone.substring(1, localTimeZone.length - 1);
-			return localTimeZone;
-		};
+
+		function toEthiopianDate(d) {
+			var JD_EPOCH_OFFSET = 1723856;
+			var a = Math.floor((14 - (d.getMonth() + 1)) / 12);
+			var y = d.getFullYear() + 4800 - a;
+			var m = (d.getMonth() + 1) + 12 * a - 3;
+			var jdn = d.getDate() + Math.floor((153 * m + 2) / 5) + 365 * y +
+				Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
+			var r = (jdn - JD_EPOCH_OFFSET) % 1461;
+			var n = (r % 365) + 365 * Math.floor(r / 1460);
+			var ethYear = 4 * Math.floor((jdn - JD_EPOCH_OFFSET) / 1461) +
+				Math.floor(r / 365) - Math.floor(r / 1460);
+			var ethMonth = Math.floor(n / 30) + 1;
+			var ethDay = (n % 30) + 1;
+			var monthsAm = ["መስከረም", "ጥቅምት", "ኅዳር", "ታኅሣሥ", "ጥር", "የካቲት", "መጋቢት", "ሚያዝያ", "ግንቦት", "ሰኔ", "ሐምሌ", "ነሐሴ", "ጳጉሜ"];
+			var dd = ethDay < 10 ? '0' + ethDay : '' + ethDay;
+			var mm = ethMonth < 10 ? '0' + ethMonth : '' + ethMonth;
+			var monthName = monthsAm[ethMonth - 1] || '';
+			return monthName + ' ' + ethDay + ', ' + ethYear + ' (' + dd + '/' + mm + '/' + ethYear + ')';
+		}
+
+		function padZero(n) { return n < 10 ? '0' + n : '' + n; }
+
+		function updateServerClock() {
+			var now = new Date(Date.now() + serverOffset);
+			var monthsEn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+			var daysEn = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+			var h = now.getHours();
+			var m = padZero(now.getMinutes());
+			var s = padZero(now.getSeconds());
+			var ampm = h >= 12 ? 'PM' : 'AM';
+			var h12 = h % 12 || 12;
+			var timeStr = padZero(h12) + ':' + m + ':' + s + ' ' + ampm;
+
+			var gcStr = daysEn[now.getDay()] + ', ' + monthsEn[now.getMonth()] + ' ' + padZero(now.getDate()) + ', ' + now.getFullYear() + ' ' + timeStr;
+			var ecStr = toEthiopianDate(now) + ' ' + timeStr;
+
+			var gcElem = document.getElementById("gc-live-datetime");
+			var ecElem = document.getElementById("ec-live-datetime");
+			if (gcElem) gcElem.textContent = gcStr;
+			if (ecElem) ecElem.textContent = ecStr;
+		}
 
 		function getLogoAndHeaderText() {
 			callAjax(
@@ -313,13 +333,22 @@
 	<div class="header_text">
 		<b>WELCOME TO<br />BAHMNI EMR & HOSPITAL SERVICE</b>
 	</div>
+	<div class="server-datetime-bar" style="display:flex;justify-content:center;margin:0 auto 15px;">
+		<div style="background:#ffffff;border:1px solid #d4dadf;border-radius:28px;padding:8px 22px;box-shadow:0 3px 8px rgba(0,0,0,0.07);display:inline-flex;align-items:center;gap:16px;font-size:14px;color:#2c3e50;">
+			<span style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
+				<span style="background:#e8f5e9;padding:3px 8px;border-radius:10px;font-size:11px;color:#2e7d32;font-weight:bold;letter-spacing:0.5px;">GC</span>
+				<span id="gc-live-datetime" style="color:#2e7d32;font-weight:bold;">Loading server time...</span>
+			</span>
+			<span style="color:#bdc3c7;">|</span>
+			<span style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
+				<span style="background:#fff3e0;padding:3px 8px;border-radius:10px;font-size:11px;color:#e65100;font-weight:bold;letter-spacing:0.5px;">EC</span>
+				<span id="ec-live-datetime" style="color:#d35400;font-weight:bold;">Loading server time...</span>
+			</span>
+		</div>
+	</div>
 	<div class="container">
 		<h4>GET STARTED</h4>
 		<div class="sections" />
-	</div>
-	<div class="warning-message">
-		<span class="warning-message-span"></span>
-		<p class="warning-message-paragraph"></p>
 	</div>
 	</div>
 	<div class="bottom-banner-wrapper">

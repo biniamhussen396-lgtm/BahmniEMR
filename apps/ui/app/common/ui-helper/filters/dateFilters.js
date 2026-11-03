@@ -115,3 +115,60 @@ angular.module('bahmni.common.uiHelper').service('ethiopianConvert', ['ethiopian
         return date;
     };
 }]);
+
+angular.module('bahmni.common.uiHelper').directive('serverDateTimeHeader', ['$interval', function ($interval) {
+    return {
+        restrict: 'EA',
+        replace: true,
+        scope: {},
+        template: '<div class="server-datetime-header-widget" style="display:inline-flex;align-items:center;vertical-align:middle;margin:3px 10px;padding:3px 12px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.22);border-radius:18px;font-family:Segoe UI,OpenSans,Arial,sans-serif;font-size:12px;color:#fff;box-shadow:inset 0 1px 3px rgba(0,0,0,0.2);line-height:22px;z-index:99;white-space:nowrap;">' +
+            '<span style="color:#b2dfdb;font-weight:700;display:inline-flex;align-items:center;gap:4px;margin-right:8px;">' +
+                '<i class="fa fa-calendar-check-o" style="color:#80cbc4;"></i> <span style="font-size:10px;padding:1px 5px;background:rgba(255,255,255,0.15);border-radius:4px;color:#ffffff;letter-spacing:0.5px;font-weight:bold;">GC</span> <span style="color:#ffffff;font-weight:600;letter-spacing:0.2px;">{{serverTime.gc}}</span>' +
+            '</span>' +
+            '<span style="color:rgba(255,255,255,0.35);margin-right:8px;">|</span>' +
+            '<span style="color:#ffe0b2;font-weight:700;display:inline-flex;align-items:center;gap:4px;">' +
+                '<i class="fa fa-clock-o" style="color:#ffcc80;"></i> <span style="font-size:10px;padding:1px 5px;background:rgba(255,255,255,0.15);border-radius:4px;color:#ffffff;letter-spacing:0.5px;font-weight:bold;">EC</span> <span style="color:#ffffff;font-weight:600;letter-spacing:0.2px;">{{serverTime.ec}}</span>' +
+            '</span>' +
+        '</div>',
+        link: function (scope) {
+            var monthsEn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            var daysEn = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+            function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+            function update() {
+                var now = (Bahmni && Bahmni.Common && Bahmni.Common.Util && Bahmni.Common.Util.DateUtil && typeof Bahmni.Common.Util.DateUtil.now === 'function')
+                    ? Bahmni.Common.Util.DateUtil.now()
+                    : new Date();
+
+                var h = now.getHours();
+                var m = pad(now.getMinutes());
+                var s = pad(now.getSeconds());
+                var ampm = h >= 12 ? 'PM' : 'AM';
+                var h12 = h % 12 || 12;
+                var timeStr = pad(h12) + ':' + m + ':' + s + ' ' + ampm;
+
+                var gcStr = daysEn[now.getDay()] + ', ' + monthsEn[now.getMonth()] + ' ' + pad(now.getDate()) + ', ' + now.getFullYear() + ' ' + timeStr;
+                
+                var ecStr = '';
+                if (Bahmni.Common.Util.DateUtil && typeof Bahmni.Common.Util.DateUtil.toEthiopian === 'function') {
+                    var eth = Bahmni.Common.Util.DateUtil.toEthiopian(now);
+                    if (eth) {
+                        ecStr = eth.monthName + ' ' + eth.day + ', ' + eth.year + ' (' + eth.formatted + ') ' + timeStr;
+                    }
+                }
+
+                scope.serverTime = {
+                    gc: gcStr,
+                    ec: ecStr
+                };
+            }
+
+            update();
+            var timer = $interval(update, 1000);
+            scope.$on('$destroy', function () {
+                if (timer) $interval.cancel(timer);
+            });
+        }
+    };
+}]);

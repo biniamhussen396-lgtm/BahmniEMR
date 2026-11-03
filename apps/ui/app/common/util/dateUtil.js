@@ -161,8 +161,49 @@ Bahmni.Common.Util.DateUtil = {
         return dateTimeString ? moment(dateTimeString) : null;
     },
 
+    serverOffset: 0,
+
+    setServerDateTime: function (serverDateStr) {
+        if (!serverDateStr) return;
+        var serverTime = new Date(serverDateStr).getTime();
+        if (!isNaN(serverTime)) {
+            this.serverOffset = serverTime - Date.now();
+        }
+    },
+
     now: function () {
-        return new Date();
+        var offset = this.serverOffset || 0;
+        return new Date(Date.now() + offset);
+    },
+
+    toEthiopian: function (dateInput) {
+        var d = dateInput ? new Date(dateInput) : this.now();
+        if (isNaN(d.getTime())) return null;
+        var JD_EPOCH_OFFSET = 1723856;
+        var a = Math.floor((14 - (d.getMonth() + 1)) / 12);
+        var y = d.getFullYear() + 4800 - a;
+        var m = (d.getMonth() + 1) + 12 * a - 3;
+        var jdn = d.getDate() + Math.floor((153 * m + 2) / 5) + 365 * y +
+            Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
+        var r = (jdn - JD_EPOCH_OFFSET) % 1461;
+        var n = (r % 365) + 365 * Math.floor(r / 1460);
+        var ethYear = 4 * Math.floor((jdn - JD_EPOCH_OFFSET) / 1461) +
+            Math.floor(r / 365) - Math.floor(r / 1460);
+        var ethMonth = Math.floor(n / 30) + 1;
+        var ethDay = (n % 30) + 1;
+        var monthsAm = ["መስከረም", "ጥቅምት", "ኅዳር", "ታኅሣሥ", "ጥር", "የካቲት", "መጋቢት", "ሚያዝያ", "ግንቦት", "ሰኔ", "ሐምሌ", "ነሐሴ", "ጳጉሜ"];
+        var daysAm = ["እሑድ", "ሰኞ", "ማክሰኞ", "ረቡዕ", "ሐሙስ", "ዓርብ", "ቅዳሜ"];
+        var dd = ethDay < 10 ? '0' + ethDay : '' + ethDay;
+        var mm = ethMonth < 10 ? '0' + ethMonth : '' + ethMonth;
+        return {
+            year: ethYear,
+            month: ethMonth,
+            day: ethDay,
+            monthName: monthsAm[ethMonth - 1] || '',
+            dayName: daysAm[d.getDay()],
+            formatted: dd + '/' + mm + '/' + ethYear,
+            textual: (monthsAm[ethMonth - 1] || '') + ' ' + ethDay + ', ' + ethYear + ' ዓ.ም'
+        };
     },
 
     today: function () {
@@ -316,3 +357,23 @@ Bahmni.Common.Util.DateUtil = {
         return moment(weekStartDate).add(6, 'days').toDate();
     }
 };
+// Automatically synchronize DateUtil with server date and time on load
+(function () {
+    if (typeof window !== 'undefined' && typeof window.XMLHttpRequest !== 'undefined') {
+        try {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/cgi-bin/systemdate', true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        if (data && data.date) {
+                            Bahmni.Common.Util.DateUtil.setServerDateTime(data.date);
+                        }
+                    } catch (e) {}
+                }
+            };
+            xhr.send();
+        } catch (e) {}
+    }
+})();
