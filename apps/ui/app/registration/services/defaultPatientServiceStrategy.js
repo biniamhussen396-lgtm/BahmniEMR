@@ -56,7 +56,7 @@ angular.module('bahmni.registration')
             $http.post(url, data, config).then(function (result) {
                 deferred.resolve(result);
             }, function (reason) {
-                deferred.resolve(reason);
+                deferred.reject(reason);
             });
             return deferred.promise;
         };

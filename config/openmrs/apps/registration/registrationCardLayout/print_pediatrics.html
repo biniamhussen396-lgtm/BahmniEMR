@@ -1,0 +1,118 @@
+<style>
+@media print {
+    @page { size: A4 portrait; margin: 8mm; }
+    body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; }
+}
+.peds-form { width: 100%; max-width: 195mm; margin: 0 auto; }
+.form-header { border-bottom: 2px solid #0284c7; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.form-title { font-size: 14pt; font-weight: bold; color: #0284c7; text-align: center; margin-top: 4px; }
+.sec-title { background: #f0f9ff; padding: 4px 8px; font-weight: bold; border-left: 4px solid #0284c7; margin: 10px 0 6px 0; font-size: 10.5pt; color: #0369a1; }
+table.form-grid { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+table.form-grid td, table.form-grid th { border: 1px solid #bae6fd; padding: 5px 8px; font-size: 9.5pt; }
+table.form-grid th { background: #f0f9ff; font-weight: 600; text-align: left; }
+.sign-box { margin-top: 25px; display: flex; justify-content: space-between; }
+.sign-line { width: 45%; border-top: 1px solid #333; padding-top: 4px; font-size: 9pt; text-align: center; }
+</style>
+
+<div class="peds-form">
+    <!-- Branding Header -->
+    <div class="form-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <img ng-src="{{branding.printLogoUrl || branding.mainLogoUrl || '/bahmni_config/openmrs/apps/registration/registrationCardLayout/images/bahmni-icon.png'}}" style="max-height: 48px; max-width: 80px;" onerror="this.onerror=null;this.src='/bahmni/images/bahmniLogo.png';">
+            <div>
+                <div style="font-size: 14pt; font-weight: bold; color: #0284c7;">{{branding.facilityName || location.name || 'Boru Meda General Hospital'}}</div>
+                <div style="font-size: 8.5pt; color: #64748b;">{{branding.tagline || 'Pediatrics Emergency Services'}} | {{branding.address}} | Tel: {{branding.phone}}</div>
+            </div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 9pt; font-weight: bold; color: #0284c7;">PEDIATRICS TRIAGE</div>
+            <div style="font-size: 8pt; color: #64748b;">{{today | bahmniDate}}</div>
+        </div>
+    </div>
+
+    <div class="form-title">PEDIATRICS EMERGENCY TRIAGE &amp; ASSESSMENT (ETAT) / የህፃናት ድንገተኛ ትሪያጅ ቅጽ</div>
+
+    <!-- Patient Demographics -->
+    <div class="sec-title">1. Child Identification</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 20%;">Patient MRN:</th>
+            <td style="width: 30%; font-weight: bold; color: #0284c7;">{{patient.primaryIdentifier.identifier}}</td>
+            <th style="width: 20%;">Triage Date &amp; Time:</th>
+            <td style="width: 30%;">{{encounterDateTime || today | bahmniDate}}</td>
+        </tr>
+        <tr>
+            <th>Child's Full Name:</th>
+            <td style="font-weight: bold;">{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</td>
+            <th>Gender / Age:</th>
+            <td>{{patient.gender}} / {{patient.age.years || patient.age | age}}</td>
+        </tr>
+        <tr>
+            <th>Parent / Caregiver:</th>
+            <td>{{patient.phoneNumber || 'Caregiver Contact'}}</td>
+            <th>Residence:</th>
+            <td>{{patient.address.cityVillage || '-'}}</td>
+        </tr>
+    </table>
+
+    <!-- ETAT Assessment -->
+    <div class="sec-title">2. ETAT Emergency &amp; Priority Signs</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 30%;">Airway &amp; Breathing:</th>
+            <td>Normal / Obstructed Breathing / Severe Stridor / Central Cyanosis / Severe Distress</td>
+        </tr>
+        <tr>
+            <th>Circulation / Shock:</th>
+            <td>Normal / Weak Rapid Pulse / Cold Extremities / Capillary Refill &gt; 3s</td>
+        </tr>
+        <tr>
+            <th>Coma / Convulsion:</th>
+            <td>Normal / Unconscious / Lethargic / Currently Convulsing</td>
+        </tr>
+        <tr>
+            <th>Severe Dehydration:</th>
+            <td>None / Sunken Eyes / Skin Pinch Very Slow (&gt; 2s)</td>
+        </tr>
+    </table>
+
+    <!-- Anthropometry & Vitals -->
+    <div class="sec-title">3. Anthropometry &amp; Vital Signs</div>
+    <table class="form-grid">
+        <tr style="text-align: center; font-weight: bold; background: #f0f9ff;">
+            <td>Weight (kg)</td>
+            <td>Height / Length (cm)</td>
+            <td>MUAC (cm)</td>
+            <td>Temperature (°C)</td>
+            <td>Heart Rate (bpm)</td>
+            <td>Resp Rate (/min)</td>
+        </tr>
+        <tr style="text-align: center; height: 30px;">
+            <td>{{obs['Weight'] || '____ kg'}}</td>
+            <td>{{obs['Height'] || '____ cm'}}</td>
+            <td>{{obs['MUAC'] || '____ cm'}}</td>
+            <td>{{obs['Temperature'] || '____ °C'}}</td>
+            <td>{{obs['Pulse'] || '____ bpm'}}</td>
+            <td>{{obs['Respiratory Rate'] || '____ /min'}}</td>
+        </tr>
+    </table>
+
+    <!-- Disposition -->
+    <div class="sec-title">4. Triage Decision &amp; Assignment</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 25%;">Triage Acuity:</th>
+            <td style="font-weight: bold;">Emergency (Immediate) / Priority (Urgent) / Non-Urgent</td>
+        </tr>
+        <tr>
+            <th>Assigned Unit:</th>
+            <td style="font-weight: bold; color: #0284c7;">Pediatrics ER / Pediatric Observation Ward / Under-Five OPD</td>
+        </tr>
+    </table>
+
+    <!-- Signatures -->
+    <div class="sign-box">
+        <div class="sign-line">Triage Nurse / Health Officer Signature</div>
+        <div class="sign-line">Receiving Pediatrician / Clinician Signature</div>
+    </div>
+</div>

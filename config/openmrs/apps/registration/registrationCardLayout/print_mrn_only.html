@@ -1,0 +1,65 @@
+<style>
+@media print {
+    @page { size: 80mm 50mm; margin: 2mm; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+}
+.mrn-card {
+    width: 76mm;
+    border: 1.5px solid #00796d;
+    border-radius: 4px;
+    padding: 4px 6px;
+    box-sizing: border-box;
+    font-size: 8.5pt;
+    color: #111;
+    text-align: center;
+}
+.mrn-header {
+    border-bottom: 1px solid #00796d;
+    padding-bottom: 2px;
+    margin-bottom: 3px;
+    font-size: 9pt;
+    font-weight: bold;
+    color: #00796d;
+}
+.mrn-code {
+    font-size: 15pt;
+    font-weight: bold;
+    color: #00796d;
+    letter-spacing: 1.5px;
+    margin: 2px 0;
+}
+.mrn-name {
+    font-size: 10pt;
+    font-weight: bold;
+    margin-bottom: 2px;
+}
+.mrn-info {
+    font-size: 8pt;
+    color: #444;
+}
+</style>
+
+<div class="mrn-card">
+    <div class="mrn-header">{{branding.facilityName || location.name || 'Boru Meda General Hospital'}}</div>
+    <div class="mrn-name">{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</div>
+    <div class="mrn-code">{{patient.primaryIdentifier.identifier}}</div>
+    <div class="mrn-info">
+        <span><b>Sex:</b> {{patient.gender}}</span> &nbsp;|&nbsp;
+        <span><b>Age:</b> {{patient.age.years || patient.age | age}}</span> &nbsp;|&nbsp;
+        <span>{{patient.registrationDate | bahmniDate}}</span>
+    </div>
+    <div style="margin-top: 3px;">
+        <img id="barcode_mrn" jsbarcode-value="{{patient.primaryIdentifier.identifier}}"
+             jsbarcode-width="1.8" jsbarcode-height="30" jsbarcode-margin="0"
+             jsbarcode-displayValue="false" />
+    </div>
+</div>
+
+<script type="text/javascript" src="/bahmni_config/openmrs/apps/JsBarcode.all.min.js"></script>
+<script>
+    (function() {
+        if (window.JsBarcode) {
+            JsBarcode("#barcode_mrn").init();
+        }
+    })();
+</script>

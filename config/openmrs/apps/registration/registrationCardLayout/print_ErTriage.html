@@ -1,0 +1,124 @@
+<style>
+@media print {
+    @page { size: A4 portrait; margin: 8mm; }
+    body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; }
+}
+.triage-form { width: 100%; max-width: 195mm; margin: 0 auto; }
+.form-header { border-bottom: 2px solid #b91c1c; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.form-title { font-size: 14pt; font-weight: bold; color: #b91c1c; text-align: center; margin-top: 4px; }
+.form-sub { font-size: 9pt; color: #555; text-align: center; }
+.acuity-box { display: flex; gap: 8px; margin-bottom: 12px; font-weight: bold; font-size: 9pt; }
+.acuity-item { flex: 1; text-align: center; padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
+.acuity-red { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
+.acuity-orange { background: #ffedd5; border-color: #f97316; color: #c2410c; }
+.acuity-yellow { background: #fef9c3; border-color: #eab308; color: #854d0e; }
+.acuity-green { background: #dcfce7; border-color: #22c55e; color: #15803d; }
+.sec-title { background: #f1f5f9; padding: 4px 8px; font-weight: bold; border-left: 4px solid #b91c1c; margin: 10px 0 6px 0; font-size: 10.5pt; }
+table.form-grid { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+table.form-grid td, table.form-grid th { border: 1px solid #cbd5e1; padding: 5px 8px; font-size: 9.5pt; }
+table.form-grid th { background: #f8fafc; font-weight: 600; text-align: left; }
+.sign-box { margin-top: 25px; display: flex; justify-content: space-between; }
+.sign-line { width: 45%; border-top: 1px solid #333; padding-top: 4px; font-size: 9pt; text-align: center; }
+</style>
+
+<div class="triage-form">
+    <!-- Branding Header -->
+    <div class="form-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <img ng-src="{{branding.printLogoUrl || branding.mainLogoUrl || '/bahmni_config/openmrs/apps/registration/registrationCardLayout/images/bahmni-icon.png'}}" style="max-height: 48px; max-width: 80px;" onerror="this.onerror=null;this.src='/bahmni/images/bahmniLogo.png';">
+            <div>
+                <div style="font-size: 14pt; font-weight: bold; color: #1e293b;">{{branding.facilityName || location.name || 'Boru Meda General Hospital'}}</div>
+                <div style="font-size: 8.5pt; color: #64748b;">{{branding.tagline || 'Emergency Services Department'}} | {{branding.address}} | Tel: {{branding.phone}}</div>
+            </div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 9pt; font-weight: bold;">EMERGENCY TRIAGE</div>
+            <div style="font-size: 8pt; color: #64748b;">{{today | bahmniDate}}</div>
+        </div>
+    </div>
+
+    <div class="form-title">EMERGENCY ROOM (ER) TRIAGE INTAKE FORM / የድንገተኛ ክፍል ትሪያጅ ቅጽ</div>
+
+    <!-- Acuity Bar -->
+    <div class="acuity-box">
+        <div class="acuity-item acuity-red">RED (Immediate / Resuscitation)</div>
+        <div class="acuity-item acuity-orange">ORANGE (Very Urgent / 15m)</div>
+        <div class="acuity-item acuity-yellow">YELLOW (Urgent / 30m)</div>
+        <div class="acuity-item acuity-green">GREEN (Standard / 60m)</div>
+    </div>
+
+    <!-- Patient Demographics -->
+    <div class="sec-title">1. Patient Identification</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 20%;">Patient MRN:</th>
+            <td style="width: 30%; font-weight: bold; font-size: 11pt; color: #b91c1c;">{{patient.primaryIdentifier.identifier}}</td>
+            <th style="width: 20%;">Arrival Date &amp; Time:</th>
+            <td style="width: 30%;">{{encounterDateTime || today | bahmniDate}}</td>
+        </tr>
+        <tr>
+            <th>Full Name:</th>
+            <td style="font-weight: bold;">{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</td>
+            <th>Gender / Age:</th>
+            <td>{{patient.gender}} / {{patient.age.years || patient.age | age}}</td>
+        </tr>
+        <tr>
+            <th>Phone / Contact:</th>
+            <td>{{patient.phoneNumber || '-'}}</td>
+            <th>Address / Woreda:</th>
+            <td>{{patient.address.cityVillage || '-'}} (Kebele {{patient.address.address2 || '-'}})</td>
+        </tr>
+    </table>
+
+    <!-- Vitals & Triage Data -->
+    <div class="sec-title">2. Vital Signs &amp; Triage Assessment</div>
+    <table class="form-grid">
+        <tr style="text-align: center; font-weight: bold; background: #f8fafc;">
+            <td>BP (mmHg)</td>
+            <td>Pulse (bpm)</td>
+            <td>Temp (°C)</td>
+            <td>Resp Rate (/min)</td>
+            <td>SpO2 (%)</td>
+            <td>Weight (kg)</td>
+        </tr>
+        <tr style="text-align: center; height: 32px;">
+            <td>{{obs['Blood Pressure'] || '____ / ____'}}</td>
+            <td>{{obs['Pulse'] || '____'}}</td>
+            <td>{{obs['Temperature'] || '____'}}</td>
+            <td>{{obs['Respiratory Rate'] || '____'}}</td>
+            <td>{{obs['SpO2'] || '____'}}</td>
+            <td>{{obs['Weight'] || '____'}}</td>
+        </tr>
+    </table>
+
+    <!-- Clinical Details -->
+    <div class="sec-title">3. Chief Complaint &amp; Clinical Triage Findings</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 25%;">Chief Complaint:</th>
+            <td>{{obs['Chief Complaint'] || obs['Triage Chief Complaint'] || 'Emergency Medical Assessment'}}</td>
+        </tr>
+        <tr>
+            <th>Mobility / Condition:</th>
+            <td>{{obs['Triage Mobility'] || 'Walking / Wheelchair / Stretcher'}}</td>
+        </tr>
+        <tr>
+            <th>Consciousness (AVPU):</th>
+            <td>{{obs['Triage AVPU'] || 'Alert / Verbal / Pain / Unresponsive'}}</td>
+        </tr>
+        <tr>
+            <th>Trauma / Injury:</th>
+            <td>{{obs['Triage Trauma'] || 'None / Blunt / Penetrating / RTA'}}</td>
+        </tr>
+        <tr>
+            <th>Assigned Destination OPD:</th>
+            <td style="font-weight: bold;">Adult ER / Emergency Resuscitation Room</td>
+        </tr>
+    </table>
+
+    <!-- Signature Block -->
+    <div class="sign-box">
+        <div class="sign-line">Triage Officer / Nurse Name &amp; Signature</div>
+        <div class="sign-line">Receiving ER Clinician Signature &amp; Date</div>
+    </div>
+</div>

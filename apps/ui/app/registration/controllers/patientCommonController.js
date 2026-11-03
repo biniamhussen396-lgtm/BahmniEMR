@@ -649,17 +649,21 @@ angular.module('bahmni.registration')
             });
 
             $scope.getAutoCompleteList = function (attributeName, query, type) {
-                //return patientAttributeService.search(attributeName, query, type);
+                if (patientAttributeService) {
+                    return patientAttributeService.search(attributeName, query, type || "personName");
+                }
                 return commonNameDictionaryService.getCommonNamesFor(query);
             };
 
-            // $scope.getDataResults = function (data) {
-            //     return data.results;
-            $scope.getDataResults = function (result) {
-                return _.map(result, function (concept) {
-                    var response = concept.conceptName;
-                    return response;
-                });
+            $scope.getDataResults = function (data) {
+                if (!data) return [];
+                if (data.results) return data.results;
+                if (Array.isArray(data)) {
+                    return _.map(data, function (item) {
+                        return (item && item.conceptName) ? item.conceptName : item;
+                    });
+                }
+                return [];
             };
 
             $scope.$watch('patient.familyName', function () {

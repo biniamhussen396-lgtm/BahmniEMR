@@ -1,4 +1,7 @@
 <div class="submit-btn-container clearfix">
+    <div ng-if="existedActiveVisits && existedActiveVisits.length > 0" class="fl" style="margin-top: 8px; font-size: 13px;">
+        <span>The patient started visit in <b>{{existedActiveVisits[0].visitType.name || existedActiveVisits[0].location.name || 'Active Visit'}}</b></span>
+    </div>
     <span ng-switch="forwardActionKey">
         <span data-ng-switch-when="enterVisitDetails">
             <button type="submit" class="right confirm"
@@ -6,7 +9,6 @@
                 accesskey="{{ ::'REGISTRATION_ENTER_VISIT_DETAILS_ACCESS_KEY' | translate }}"
                 ng-bind-html="::'REGISTRATION_LABEL_ENTER_VISIT' | translate">
             </button>
-            <span>The patient started visit in <b>{{existedActiveVisits[0].visitType.name}}</b></span>
         </span>
         <span data-ng-switch-when="forwardAction">
                 <button type="submit" class="right confirm"

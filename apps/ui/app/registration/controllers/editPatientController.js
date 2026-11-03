@@ -107,8 +107,8 @@ angular.module('bahmni.registration')
                 }
 
                 return spinner.forPromise(patientService.update($scope.patient, $scope.openMRSPatient).then(function (result) {
-                    var patientProfileData = result.data;
-                    if (!patientProfileData.error) {
+                    var patientProfileData = result && result.data;
+                    if (patientProfileData && patientProfileData.patient && !patientProfileData.error) {
                         successCallBack(patientProfileData);
                         $scope.actions.followUpAction(patientProfileData);
                     }
@@ -124,7 +124,7 @@ angular.module('bahmni.registration')
                     delete relationship.content;
                     delete relationship.providerName;
                 });
-                $scope.patient.relationships = _.concat(newRelationships, $scope.patient.deletedRelationships);
+                $scope.patient.relationships = _.concat(newRelationships, $scope.patient.deletedRelationships || []);
             };
 
             $scope.isReadOnly = function (field) {

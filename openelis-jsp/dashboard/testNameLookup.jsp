@@ -45,5 +45,9 @@
         out.print("}");
     } catch (Exception e) {
         out.print("{\"error\":\"" + (e.getMessage() != null ? e.getMessage().replace("\"", "\\\"") : "unknown") + "\"}");
+    } finally {
+        try {
+            HibernateUtil.closeSession();
+        } catch (Exception ignore) {}
     }
 %>

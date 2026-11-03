@@ -5,9 +5,11 @@ angular.module('bahmni.common.domain')
         var self = this;
 
         this.getCommonNamesFor = function (searchTerm) {
-            var url = Bahmni.Common.Constants.emrapiCommonNamesUrl;
+            var url = Bahmni.Common.Constants.bahmniSearchUrl + "/personname";
+            var queryWithoutTrailingSpaces = (searchTerm || '').trimLeft();
             return $http.get(url, {
-                params: {term: searchTerm, limit: 20}
+                params: {q: queryWithoutTrailingSpaces, key: 'givenName'},
+                withCredentials: true
             });
         };
         

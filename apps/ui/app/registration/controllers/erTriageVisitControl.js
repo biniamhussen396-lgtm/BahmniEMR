@@ -22,8 +22,10 @@ angular.module('bahmni.registration')
                 patientService.get(patientUuid).then(function (openMRSPatient) {
                     deferred.resolve(openMRSPatient);
                     $scope.patient = openmrsPatientMapper.map(openMRSPatient);
-                    $scope.patient.name = openMRSPatient.patient.person.names[0].display;
-                    $scope.patient.uuid = openMRSPatient.patient.uuid;
+                    var p = (openMRSPatient && openMRSPatient.patient) ? openMRSPatient.patient : (openMRSPatient || {});
+                    var person = p.person || (openMRSPatient && openMRSPatient.person);
+                    $scope.patient.name = (person && person.names && person.names[0] && person.names[0].display) || p.display || ($scope.patient && $scope.patient.name) || '';
+                    $scope.patient.uuid = p.uuid || patientUuid;
                 });
                 return deferred.promise;
             };
@@ -147,16 +149,19 @@ angular.module('bahmni.registration')
                 return visitService.search({
                     patient: patientUuid, includeInactive: false, v: "custom:(uuid,location:(uuid))"
                 }).then(function (response) {
-                    var results = response.data.results;
-                    var activeVisitForCurrentLoginLocation;
-                    if (results) {
-                        activeVisitForCurrentLoginLocation = _.filter(results, function (result) {
-                            return result.location.uuid === visitLocationUuid;
-                        });
+                    var results = (response.data && response.data.results) ? response.data.results : [];
+                    var matchedVisit = null;
+                    if (results.length > 0) {
+                        if (visitLocationUuid) {
+                            matchedVisit = _.find(results, function (result) {
+                                return result.location && result.location.uuid === visitLocationUuid;
+                            });
+                        }
+                        matchedVisit = matchedVisit || results[0];
                     }
 
-                    var hasActiveVisit = activeVisitForCurrentLoginLocation.length > 0;
-                    vm.visitUuid = hasActiveVisit ? activeVisitForCurrentLoginLocation[0].uuid : "";
+                    var hasActiveVisit = !!matchedVisit;
+                    vm.visitUuid = hasActiveVisit ? matchedVisit.uuid : "";
                     $scope.canCloseVisit = isUserPrivilegedToCloseVisit() && hasActiveVisit;
                 });
             };

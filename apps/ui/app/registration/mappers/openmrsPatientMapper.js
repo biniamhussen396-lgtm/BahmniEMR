@@ -36,9 +36,15 @@ angular.module('bahmni.registration').factory('openmrsPatientMapper', ['patient'
             },
 
             map = function (openmrsPatient) {
+                if (!openmrsPatient || !openmrsPatient.patient) {
+                    return patientModel.create();
+                }
                 var relationships = openmrsPatient.relationships;
                 openmrsPatient = openmrsPatient.patient;
                 var openmrsPerson = openmrsPatient.person;
+                if (!openmrsPerson) {
+                    return patientModel.create();
+                }
                 var patient = patientModel.create();
                 var birthDate = parseDate(openmrsPerson.birthdate);
                 patient.uuid = openmrsPatient.uuid;

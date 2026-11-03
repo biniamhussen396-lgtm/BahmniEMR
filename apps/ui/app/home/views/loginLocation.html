@@ -1,5 +1,5 @@
 <div class="clint-logo-wrapper">
-    <img class="implementor-logo" src={{logo}} >
+    <img class="implementor-logo" ng-src="{{logo}}" >
     <span ng-if="titleText" class="title_text"> {{'LOGIN_LOCATION_PAGE_TITLE_TEXT' | translate }} </span>
 </div>
 
@@ -36,13 +36,13 @@
     </div>
 
     <div ng-show="bottomLogos" class="bottom-logos-wrapper">
-        <img ng-repeat="logo in bottomLogos" id="bottom-logos-image" src={{logo}}>
+        <img ng-repeat="logo in bottomLogos" id="bottom-logos-image" ng-src="{{logo}}">
     </div>
 
 </div>
 
 
 <div class="power-by">
-    <a href="https://cdhi.uog.edu.et/"> powered by CDHi</a>
-    <img src="./../images/cdhiLogo.png" alt="CDHi" />
+    <a ng-href="{{footerLink || 'https://cdhi.uog.edu.et/'}}"> {{footerText || 'powered by CDHi'}}</a>
+    <img ng-src="{{footerLogo || './../images/cdhiLogo.png'}}" alt="CDHi" />
 </div>

@@ -19,7 +19,8 @@ angular.module('bahmni.registration')
             return $http.get(url, {
                 method: "GET",
                 params: {q: queryWithoutTrailingSpaces, key: fieldName },
-                withCredentials: true
+                withCredentials: true,
+                ignoreErrors: true
             });
         };
 

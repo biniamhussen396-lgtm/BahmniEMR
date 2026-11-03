@@ -47,6 +47,9 @@ class ApiEventWorker(models.Model):
             elif category == "add.available.lab.tests":
                 self._add_available_lab_tests(vals)
                 return "Available lab tests added to sale order successfully."
+            elif category == "confirm.sale.order" or category == "approve.order":
+                self._confirm_sale_order(vals)
+                return "Sale order confirmed successfully."
             else:
                 raise UserError("Integration process is not defined. Kindly contact ERP tech team for support.")
         except Exception as err:
@@ -364,3 +367,44 @@ class ApiEventWorker(models.Model):
             })
             _logger.info("Added evaluated available test [%s / uuid:%s] to sale order %s for patient %s",
                          test_name, test_uuid, sale_order.name, partner.name)
+
+    @api.model
+    def _confirm_sale_order(self, vals):
+        """Confirm draft quotation into sales order for patient/order without waiting for invoice registration"""
+        patient_ref = vals.get("patientId") or vals.get("customer_id")
+        order_uuid = vals.get("orderUuid")
+        sale_order_name = vals.get("saleOrderName")
+        
+        sale_orders = self.env['sale.order']
+        if sale_order_name:
+            so = self.env['sale.order'].search([('name', '=', str(sale_order_name))], limit=1)
+            if so:
+                sale_orders |= so
+
+        if patient_ref:
+            partner = self.env['res.partner'].search([('ref', '=', str(patient_ref))], limit=1)
+            if partner:
+                so_list = self.env['sale.order'].search([
+                    ('partner_id', '=', partner.id),
+                    ('state', 'in', ['draft', 'sent'])
+                ], order='id desc')
+                sale_orders |= so_list
+
+        if not sale_orders and order_uuid:
+            sols = self.env['sale.order.line'].search([
+                '|', ('external_order_id', '=', order_uuid),
+                '|', ('order_uuid', '=', order_uuid),
+                ('external_id', '=', order_uuid)
+            ])
+            for sol in sols:
+                if sol.order_id:
+                    sale_orders |= sol.order_id
+
+        for so in sale_orders:
+            if so.state in ('draft', 'sent'):
+                try:
+                    so.action_confirm()
+                except Exception as e:
+                    so.write({'state': 'sale'})
+                _logger.info("Confirmed sale order %s to state %s", so.name, so.state)
+        return True

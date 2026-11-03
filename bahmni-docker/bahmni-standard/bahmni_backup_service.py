@@ -1030,6 +1030,7 @@ def load_branding_config():
     
     data = {
         "facilityName": "Boru Meda General Hospital",
+        "browserTitle": "BMH bahmni",
         "tagline": "General Hospital EMR System",
         "welcomeMessage": "WELCOME TO BORU MEDA GENERAL HOSPITAL EMR System",
         "address": "Boru Meda, Dessie, Amhara, Ethiopia",
@@ -1039,7 +1040,10 @@ def load_branding_config():
         "mainLogoUrl": "/bahmni/images/bahmniLogo.png",
         "loginLogoUrl": "/bahmni_config/openmrs/apps/home/logo.png",
         "printLogoUrl": "/bahmni_config/openmrs/apps/registration/registrationCardLayout/images/bahmni-icon.png",
-        "faviconUrl": "/bahmni/favicon.ico"
+        "faviconUrl": "/bahmni/favicon.ico",
+        "footerLogoUrl": "/bahmni/images/cdhiLogo.png",
+        "footerText": "powered by CDHi",
+        "footerLink": "https://cdhi.uog.edu.et/"
     }
 
     if os.path.isfile(branding_file):
@@ -1082,16 +1086,20 @@ def load_branding_config():
     data["loginLogoUrlWithCache"] = f"{data['loginLogoUrl']}?t={ts}"
     data["printLogoUrlWithCache"] = f"{data['printLogoUrl']}?t={ts}"
     data["faviconUrlWithCache"] = f"{data['faviconUrl']}?t={ts}"
+    data["footerLogoUrlWithCache"] = f"{data.get('footerLogoUrl', '/bahmni/images/cdhiLogo.png')}?t={ts}"
     return data
 
 def save_branding_config(payload):
     facility_name = (payload.get("facilityName") or "Boru Meda General Hospital").strip()
+    browser_title = (payload.get("browserTitle") or payload.get("facilityName") or "BMH bahmni").strip()
     tagline = (payload.get("tagline") or "").strip()
     welcome_message = (payload.get("welcomeMessage") or f"WELCOME TO {facility_name.upper()} EMR System").strip()
     address = (payload.get("address") or "").strip()
     phone = (payload.get("phone") or "").strip()
     email = (payload.get("email") or "").strip()
     website = (payload.get("website") or "").strip()
+    footer_text = (payload.get("footerText") or "powered by CDHi").strip()
+    footer_link = (payload.get("footerLink") or "https://cdhi.uog.edu.et/").strip()
     apply_all = bool(payload.get("applyMainLogoToAll", False))
 
     log(f"Saving branding: facility='{facility_name}', tagline='{tagline}', apply_all={apply_all}")
@@ -1140,6 +1148,30 @@ def save_branding_config(payload):
             write_file_safe(local_f, fav_bytes, is_binary=True)
             sync_file_to_bahmni_web(local_f, "/usr/local/apache2/htdocs/bahmni/favicon.ico")
 
+    # Save Footer Logo
+    footer_b64 = payload.get("footerLogoBase64")
+    if footer_b64:
+        footer_bytes = decode_base64_data(footer_b64)
+        if footer_bytes:
+            for fname in ("cdhiLogo.png", "cdhilogo.png", "cdhiLogo.png.png"):
+                local_f = os.path.join(APP_DIR, "images", fname)
+                write_file_safe(local_f, footer_bytes, is_binary=True)
+                sync_file_to_bahmni_web(local_f, f"/usr/local/apache2/htdocs/bahmni/images/{fname}")
+
+    # Update Browser Tab Title (<title> tags) in HTML files
+    for app_name in ("home", "registration", "clinical", "admin", "reports", "orders", "adt", "bedmanagement", "document-upload"):
+        idx_f = os.path.join(APP_DIR, app_name, "index.html")
+        if os.path.isfile(idx_f):
+            try:
+                with open(idx_f, "r", encoding="utf-8") as f:
+                    idx_html = f.read()
+                new_idx_html = re.sub(r'<title>.*?</title>', f'<title>{browser_title}</title>', idx_html, flags=re.IGNORECASE)
+                if new_idx_html != idx_html:
+                    write_file_safe(idx_f, new_idx_html)
+                    sync_file_to_bahmni_web(idx_f, f"/usr/local/apache2/htdocs/bahmni/{app_name}/index.html")
+            except Exception as e:
+                log(f"Warning updating title in {idx_f}: {e}")
+
     # Update whiteLabel.json
     whitelabel_file = os.path.join(CONFIG_DIR, "openmrs", "apps", "home", "whiteLabel.json")
     if os.path.isfile(whitelabel_file):
@@ -1149,9 +1181,13 @@ def save_branding_config(payload):
             wl.setdefault("homePage", {})
             wl["homePage"]["header_text"] = f"<b>{welcome_message}</b>"
             wl["homePage"]["title_text"] = tagline
+            wl["homePage"]["browserTitle"] = browser_title
             wl["homePage"]["logo"] = "/bahmni_config/openmrs/apps/home/logo.png"
             wl.setdefault("loginPage", {})
             wl["loginPage"]["logo"] = "/bahmni_config/openmrs/apps/home/logo.png"
+            wl["loginPage"]["footerText"] = footer_text
+            wl["loginPage"]["footerLink"] = footer_link
+            wl["loginPage"]["footerLogo"] = "/bahmni/images/cdhiLogo.png"
             write_file_safe(whitelabel_file, json.dumps(wl, indent=2))
             sync_file_to_bahmni_web(whitelabel_file, "/usr/local/apache2/htdocs/bahmni_config/openmrs/apps/home/whiteLabel.json")
         except Exception as e:
@@ -1237,6 +1273,7 @@ def save_branding_config(payload):
     branding_file = os.path.join(CONFIG_DIR, "openmrs", "apps", "branding.json")
     saved_meta = {
         "facilityName": facility_name,
+        "browserTitle": browser_title,
         "tagline": tagline,
         "welcomeMessage": welcome_message,
         "address": address,
@@ -1247,6 +1284,9 @@ def save_branding_config(payload):
         "loginLogoUrl": "/bahmni_config/openmrs/apps/home/logo.png",
         "printLogoUrl": "/bahmni_config/openmrs/apps/registration/registrationCardLayout/images/bahmni-icon.png",
         "faviconUrl": "/bahmni/favicon.ico",
+        "footerLogoUrl": "/bahmni/images/cdhiLogo.png",
+        "footerText": footer_text,
+        "footerLink": footer_link,
         "updatedAt": datetime.datetime.now().isoformat()
     }
     write_file_safe(branding_file, json.dumps(saved_meta, indent=2))

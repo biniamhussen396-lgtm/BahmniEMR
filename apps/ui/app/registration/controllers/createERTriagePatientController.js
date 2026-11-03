@@ -3,9 +3,9 @@
 angular.module('bahmni.registration')
     .controller('CreateERTriagePatientController', ['$scope', '$rootScope', '$state', 'patientService', 'patient',
         'spinner', 'appService', 'messagingService', 'ngDialog', '$q', '$bahmniCookieStore', 'encounterService', '$translate',
-        'visitService', 'auditLogService', '$location', 'commonNameDictionaryService',
+        'visitService', 'auditLogService', '$location', 'commonNameDictionaryService', 'patientAttributeService',
         function ($scope, $rootScope, $state, patientService, patient, spinner, appService, messagingService, ngDialog, $q,
-                  $bahmniCookieStore, encounterService, $translate, visitService, auditLogService, $location, commonNameDictionaryService) {
+                  $bahmniCookieStore, encounterService, $translate, visitService, auditLogService, $location, commonNameDictionaryService, patientAttributeService) {
             var dateUtil = Bahmni.Common.Util.DateUtil;
             $scope.actions = {};
             var errorMessage;
@@ -96,14 +96,21 @@ angular.module('bahmni.registration')
             init();
 
             $scope.getAutoCompleteList = function (attributeName, query, type) {
+                if (patientAttributeService) {
+                    return patientAttributeService.search(attributeName, query, type || "personName");
+                }
                 return commonNameDictionaryService.getCommonNamesFor(query);
             };
 
-            $scope.getDataResults = function (result) {
-                return _.map(result, function (concept) {
-                    var response = concept.conceptName;
-                    return response;
-                });
+            $scope.getDataResults = function (data) {
+                if (!data) return [];
+                if (data.results) return data.results;
+                if (Array.isArray(data)) {
+                    return _.map(data, function (item) {
+                        return (item && item.conceptName) ? item.conceptName : item;
+                    });
+                }
+                return [];
             };
 
             var addNewRelationships = function () {
@@ -137,7 +144,9 @@ angular.module('bahmni.registration')
             var copyPatientProfileDataToScope = function (response) {
                 var patientProfileData = response.data;
                 $scope.patient.uuid = patientProfileData.patient.uuid;
-                $scope.patient.name = patientProfileData.patient.person.names[0].display;
+                var p = (patientProfileData && patientProfileData.patient) ? patientProfileData.patient : (patientProfileData || {});
+                var person = p.person || (patientProfileData && patientProfileData.person);
+                $scope.patient.name = (person && person.names && person.names[0] && person.names[0].display) || p.display || ($scope.patient && $scope.patient.name) || '';
                 $scope.patient.isNew = true;
                 $scope.patient.registrationDate = dateUtil.now();
                 $scope.patient.newlyAddedRelationships = [{}];
@@ -209,8 +218,13 @@ angular.module('bahmni.registration')
                 if ($scope.patient.gender == null)
                     $scope.patient.gender = "O";
 
-                if($scope.patient.birthdate == null){
-                    $scope.patient.birthdate = dateUtil.now();
+                if ($scope.patient.birthdate == null) {
+                    if ($scope.patient.age && ($scope.patient.age.years || $scope.patient.age.months || $scope.patient.age.days)) {
+                        $scope.patient.calculateBirthDate();
+                    }
+                    if ($scope.patient.birthdate == null) {
+                        $scope.patient.birthdate = dateUtil.now();
+                    }
                 }
 
                 
@@ -283,7 +297,9 @@ angular.module('bahmni.registration')
 
             var goToVisitPage = function (patientData) {
                 $scope.patient.uuid = patientData.patient.uuid;
-                $scope.patient.name = patientData.patient.person.names[0].display;
+                var p = (patientData && patientData.patient) ? patientData.patient : (patientData || {});
+                var person = p.person || (patientData && patientData.person);
+                $scope.patient.name = (person && person.names && person.names[0] && person.names[0].display) || p.display || ($scope.patient && $scope.patient.name) || '';
                 $location.path("/patient/" + patientData.patient.uuid + "/erTriageVisit/" +$scope.triageSelected);
 
             };

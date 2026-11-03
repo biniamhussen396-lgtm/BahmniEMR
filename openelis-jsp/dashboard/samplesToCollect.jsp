@@ -34,36 +34,53 @@ if (selectedLabLocationName == null) selectedLabLocationName = "";
 
 java.util.Set<String> evaluatedSampleIds = new java.util.HashSet<String>();
 java.util.Set<String> sentToBillingSampleIds = new java.util.HashSet<String>();
+java.util.Set<String> confirmedSampleIds = new java.util.HashSet<String>();
 try {
     org.hibernate.Session dbSession = us.mn.state.health.lims.hibernate.HibernateUtil.getSession();
     java.util.List soRows = dbSession.createSQLQuery(
         "SELECT " +
-        "  CAST(sample_id AS varchar), " +
-        "  MAX(CASE WHEN sent_to_billing = true THEN 1 ELSE 0 END) " +
-        "FROM stock_out_selection " +
-        "WHERE status IN ('available', 'stockout') " +
-        "GROUP BY sample_id"
+        "  CAST(sos.sample_id AS varchar), " +
+        "  CAST(COALESCE(sh.id, 0) AS varchar), " +
+        "  CAST(COALESCE(sh.samp_id, 0) AS varchar), " +
+        "  MAX(CASE WHEN sos.sent_to_billing = true THEN 1 ELSE 0 END), " +
+        "  MAX(CASE WHEN sos.status IN ('confirmed', 'approved', 'paid') THEN 1 ELSE 0 END) " +
+        "FROM stock_out_selection sos " +
+        "LEFT JOIN sample_human sh ON (sos.sample_id = sh.samp_id OR sos.sample_id = sh.id) " +
+        "WHERE sos.status IN ('available', 'stockout', 'confirmed', 'approved', 'paid') " +
+        "GROUP BY sos.sample_id, sh.id, sh.samp_id"
     ).list();
     if (soRows != null) {
         for (Object obj : soRows) {
             if (obj instanceof Object[]) {
                 Object[] r = (Object[]) obj;
-                if (r[0] != null) {
-                    String sidVal = r[0].toString().trim();
-                    boolean isSent = (r[1] != null && ((Number) r[1]).intValue() == 1);
-                    if (!sidVal.isEmpty()) {
-                        evaluatedSampleIds.add(sidVal);
-                        if (isSent) {
-                            sentToBillingSampleIds.add(sidVal);
+                boolean isSent = (r[3] != null && ((Number) r[3]).intValue() == 1);
+                boolean isConf = (r[4] != null && ((Number) r[4]).intValue() == 1);
+                for (int k = 0; k < 3; k++) {
+                    if (r[k] != null) {
+                        String sidVal = r[k].toString().trim();
+                        if (!sidVal.isEmpty() && !"0".equals(sidVal)) {
+                            evaluatedSampleIds.add(sidVal);
+                            if (isSent) {
+                                sentToBillingSampleIds.add(sidVal);
+                            }
+                            if (isConf) {
+                                confirmedSampleIds.add(sidVal);
+                            }
                         }
                     }
                 }
             }
         }
     }
-} catch (Exception ignore) {}
+} catch (Exception ignore) {
+} finally {
+    try {
+        us.mn.state.health.lims.hibernate.HibernateUtil.closeSession();
+    } catch (Exception ignore) {}
+}
 String evaluatedSampleIdsJson = new org.json.JSONArray(evaluatedSampleIds).toString();
 String sentToBillingSampleIdsJson = new org.json.JSONArray(sentToBillingSampleIds).toString();
+String confirmedSampleIdsJson = new org.json.JSONArray(confirmedSampleIds).toString();
 %>
 
 <link rel="stylesheet" type="text/css" href="<%=basePath%>css/slickgrid/examples.css" />
@@ -440,24 +457,25 @@ form[name="menuForm"]{position:sticky!important;top:0!important;z-index:50!impor
         <div class="stockout-panel-inner">
             <div style="display:flex;justify-content:space-between;align-items:center">
                 <p class="stockout-title">Stock-Out Management</p>
-                <button onclick="StockOut.hidePanel()" style="background:none;border:none;font-size:16px;cursor:pointer;color:#64748b">&times;</button>
+                <button type="button" onclick="StockOut.hidePanel()" style="background:none;border:none;font-size:16px;cursor:pointer;color:#64748b">&times;</button>
             </div>
             <p class="stockout-info">Mark tests as Stock-Out for unavailable reagents. Available tests will proceed normally.</p>
             <div id="stockoutTestList" class="stockout-test-list">
                 <p style="color:#64748b;font-size:12px">Loading...</p>
             </div>
             <div class="stockout-actions">
-                <button class="btn btn-secondary" onclick="StockOut.markAllAvailable()">Mark All Available</button>
-                <button class="btn btn-danger" onclick="StockOut.markAllStockOut()">Mark All Stock-Out</button>
-                <button class="btn btn-success" onclick="StockOut.saveSelections()" style="background:#2563eb;color:#fff">Save & Send to Billing</button>
-                <button class="btn btn-success" onclick="StockOut.generateNotice()">Generate Stock-Out Notice</button>
+                <button type="button" class="btn btn-secondary" onclick="StockOut.markAllAvailable()">Mark All Available</button>
+                <button type="button" class="btn btn-danger" onclick="StockOut.markAllStockOut()">Mark All Stock-Out</button>
+                <button type="button" class="btn btn-success" onclick="StockOut.saveSelections(false)" style="background:#2563eb;color:#fff">Save & Send to Billing</button>
+                <button type="button" class="btn btn-success" onclick="StockOut.saveSelections(true)" style="background:#059669;color:#fff">Save & Confirm Billing ✓</button>
+                <button type="button" class="btn btn-success" onclick="StockOut.generateNotice()">Generate Stock-Out Notice</button>
             </div>
         </div>
     </div>
 
     <div id="stockoutNoticeModal" class="stockout-notice-modal">
         <div class="stockout-notice-dialog">
-            <button class="close-btn" onclick="StockOut.closeNoticeModal()">&times;</button>
+            <button type="button" class="close-btn" onclick="StockOut.closeNoticeModal()">&times;</button>
             <h3>Stock-Out Notice Generated</h3>
             <div class="order-info">
                 <strong>Notice Number:</strong> <span id="snNoticeNumber">-</span><br>
@@ -467,7 +485,7 @@ form[name="menuForm"]{position:sticky!important;top:0!important;z-index:50!impor
             </div>
             <p style="font-size:12px;color:#64748b">The stock-out notice has been sent to print. The billing team has been notified via Odoo sync.</p>
             <div class="btn-row">
-                <button class="btn btn-secondary" onclick="StockOut.closeNoticeModal()">Close</button>
+                <button type="button" class="btn btn-secondary" onclick="StockOut.closeNoticeModal()">Close</button>
             </div>
         </div>
     </div>
@@ -569,6 +587,8 @@ jQuery(document).ready(function(){
 
     window.evaluatedSampleIds = new Set(<%= evaluatedSampleIdsJson %>);
     window.sentToBillingSampleIds = new Set(<%= sentToBillingSampleIdsJson %>);
+    window.confirmedSampleIds = new Set(<%= confirmedSampleIdsJson %>);
+    window.confirmedPatientRefs = new Set();
 
     var todayOrderList=JSON.parse('<%=todayOrderListJson%>');
     var todaySampleNotCollectedList=JSON.parse('<%=todaySampleNotCollectedListJson%>');
@@ -579,6 +599,70 @@ jQuery(document).ready(function(){
     todaySampleNotCollectedList=filterByLocation(todaySampleNotCollectedList);
     backlogSampleNotCollectedList=filterByLocation(backlogSampleNotCollectedList);
     backlogOrderList=filterByLocation(backlogOrderList);
+
+    var applyConfirmedOrders = function(list) {
+        if (!list) return;
+        list.forEach(function(o) {
+            var sId = String(o.orderId || o.sampleId || '').trim();
+            var smpId = o.sampleId ? String(o.sampleId).trim() : '';
+            var pRef = String(o.stNumber || o.patientId || '').trim();
+            if ((sId && window.confirmedSampleIds.has(sId)) ||
+                (smpId && window.confirmedSampleIds.has(smpId)) ||
+                (pRef && window.confirmedPatientRefs.has(pRef))) {
+                o.hasPaid = true;
+            }
+        });
+    };
+    applyConfirmedOrders(todaySampleNotCollectedList);
+    applyConfirmedOrders(backlogSampleNotCollectedList);
+    applyConfirmedOrders(todayOrderList);
+    applyConfirmedOrders(backlogOrderList);
+
+    (function checkOdooConfirmed() {
+        var hasUnconfirmed = (todaySampleNotCollectedList || []).concat(backlogSampleNotCollectedList || []).some(function(o) {
+            return !o.hasPaid;
+        });
+        if (!hasUnconfirmed) return;
+        new Ajax.Request('<%=basePath%>pages/dashboard/sendToBilling.jsp?action=checkOdooConfirmed', {
+            method: 'get',
+            onSuccess: function(xhr) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    if (resp.success && resp.confirmedRefs && resp.confirmedRefs.length > 0) {
+                        var changed = false;
+                        resp.confirmedRefs.forEach(function(ref) {
+                            window.confirmedPatientRefs.add(String(ref).trim());
+                        });
+                        var all = (window.todaySampleNotCollectedList || []).concat(window.backlogSampleNotCollectedList || []);
+                        all.forEach(function(o) {
+                            var pRef = String(o.stNumber || o.patientId || '').trim();
+                            var sId = String(o.orderId || o.sampleId || '').trim();
+                            if ((pRef && window.confirmedPatientRefs.has(pRef)) || (sId && window.confirmedPatientRefs.has(sId))) {
+                                if (!o.hasPaid) {
+                                    o.hasPaid = true;
+                                    changed = true;
+                                }
+                            }
+                        });
+                        if (changed) {
+                            sessionStorage.setItem('pendingToast', JSON.stringify({
+                                title: 'Quotation Approved in Odoo',
+                                message: 'Quotation confirmed in Odoo! Sample collection unlocked.',
+                                type: 'success',
+                                duration: 4500
+                            }));
+                            window.location.reload();
+                        }
+                    }
+                } catch(e) {}
+            }
+        });
+    })();
+
+    window.todayOrderList = todayOrderList;
+    window.todaySampleNotCollectedList = todaySampleNotCollectedList;
+    window.backlogSampleNotCollectedList = backlogSampleNotCollectedList;
+    window.backlogOrderList = backlogOrderList;
 
     var _alv=<%=alwaysValidate%>;
     todayOrderList.forEach(function(o){o.link=generateAllLinksForOrder(o,_alv)});
@@ -819,8 +903,59 @@ var StockOut={
             listContainer.innerHTML = '<div style="padding:15px;text-align:center;color:#64748b;font-size:12px;">Loading order tests...</div>';
         }
 
-        // 1. First, check if selections were already saved in the database
-        new Ajax.Request('pages/dashboard/getStockOutSelections.jsp', {
+        // 0. Extract tests immediately from client-side row data if present
+        var matchedOrder = null;
+        var allRows = (window.todaySampleNotCollectedList || []).concat(window.backlogSampleNotCollectedList || []);
+        for(var k = 0; k < allRows.length; k++){
+            if(String(allRows[k].orderId) === String(orderId) || String(allRows[k].sampleId) === String(orderId)){
+                matchedOrder = allRows[k];
+                break;
+            }
+        }
+        if (matchedOrder) {
+            var rawTests = matchedOrder.testNames || matchedOrder.tests || matchedOrder.testDescription;
+            if (rawTests) {
+                var testList = [];
+                if (typeof rawTests === 'string') {
+                    try {
+                        var parsed = JSON.parse(rawTests);
+                        if (Array.isArray(parsed)) {
+                            parsed.forEach(function(item){
+                                var nm = typeof item === 'string' ? item : (item.name || item.testName || '');
+                                if (nm) testList.push(nm.trim());
+                            });
+                        }
+                    } catch(e) {
+                        rawTests.split(',').forEach(function(part){
+                            var pt = part.trim();
+                            if (pt) testList.push(pt);
+                        });
+                    }
+                } else if (Array.isArray(rawTests)) {
+                    rawTests.forEach(function(item){
+                        var nm = typeof item === 'string' ? item : (item.name || item.testName || '');
+                        if (nm) testList.push(nm.trim());
+                    });
+                }
+                if (testList.length > 0) {
+                    self.tests = [];
+                    testList.forEach(function(tn, idx){
+                        self.selectedStatus[idx] = 'available';
+                        self.tests.push({
+                            testId: '',
+                            testName: tn,
+                            testType: matchedOrder.sampleType || '',
+                            conceptUuid: '',
+                            status: 'available'
+                        });
+                    });
+                    self._render();
+                }
+            }
+        }
+
+        // 1. Check if selections were already saved in the database
+        new Ajax.Request('<%=basePath%>pages/dashboard/getStockOutSelections.jsp', {
             method: 'get',
             parameters: { sampleId: orderId },
             onSuccess: function(xhr){
@@ -830,7 +965,7 @@ var StockOut={
                         self.tests = [];
                         for (var i = 0; i < saved.length; i++) {
                             var s = saved[i];
-                            var st = s.status || 'pending';
+                            var st = (s.status && s.status === 'stockout') ? 'stockout' : 'available';
                             self.selectedStatus[i] = st;
                             self.tests.push({
                                 testId: s.testId ? String(s.testId) : '',
@@ -845,11 +980,18 @@ var StockOut={
                     }
                 } catch(e) {}
 
+                // If row already provided tests, do not override with empty fetch
+                if (self.tests && self.tests.length > 0) {
+                    return;
+                }
+
                 // 2. Fallback to discover tests from order/sample if never saved before
                 self._fetchTests(orderId);
             },
             onFailure: function(){
-                self._fetchTests(orderId);
+                if (!self.tests || self.tests.length === 0) {
+                    self._fetchTests(orderId);
+                }
             }
         });
     },
@@ -899,7 +1041,7 @@ var StockOut={
                     }
                 }
                 if(testIds.length>0){
-                    new Ajax.Request('pages/dashboard/testNameLookup.jsp',{method:'get',
+                    new Ajax.Request('<%=basePath%>pages/dashboard/testNameLookup.jsp',{method:'get',
                         parameters:{ids:testIds.join(',')},
                         onSuccess:function(xhr2){
                             try{
@@ -939,7 +1081,10 @@ var StockOut={
         this.tests.forEach(function(t,i){
             var name=(typeof t==='string'?t:(t.testName||('Test '+(i+1)))).trim();
             var type=(t&&t.testType)?t.testType:'';
-            var st=self.selectedStatus[i]||'';
+            if(!self.selectedStatus[i] || self.selectedStatus[i] === 'pending'){
+                self.selectedStatus[i] = 'available';
+            }
+            var st=self.selectedStatus[i];
             var availCls='stockout-btn available'+(st==='available'?' selected':'');
             var soCls='stockout-btn stockout'+(st==='stockout'?' selected':'');
             html+='<div class="stockout-test-item">';
@@ -947,8 +1092,8 @@ var StockOut={
             if(type)html+='<div class="stockout-test-type">'+type+'</div>';
             html+='</div>';
             html+='<div class="stockout-toggle">';
-            html+='<button class="'+availCls+'" id="so-avail-'+i+'" onclick="StockOut.setStatus('+i+',\'available\')">Available</button>';
-            html+='<button class="'+soCls+'" id="so-so-'+i+'" onclick="StockOut.setStatus('+i+',\'stockout\')">Stock-Out</button>';
+            html+='<button type="button" class="'+availCls+'" id="so-avail-'+i+'" onclick="StockOut.setStatus('+i+',\'available\')">Available</button>';
+            html+='<button type="button" class="'+soCls+'" id="so-so-'+i+'" onclick="StockOut.setStatus('+i+',\'stockout\')">Stock-Out</button>';
             html+='</div></div>';
         });
         document.getElementById('stockoutTestList').innerHTML=html;
@@ -1007,7 +1152,7 @@ var StockOut={
         return result;
     },
 
-    saveSelections:function(){
+    saveSelections:function(confirmNow){
         var self=this;
         var order=this.currentOrderId;
         if (!order) {
@@ -1019,34 +1164,42 @@ var StockOut={
             return;
         }
         var selections=[];
-        var hasSelection=false;
         this.tests.forEach(function(t,i){
-            var st=self.selectedStatus[i]||'pending';
-            if(st!=='pending')hasSelection=true;
+            var st = (self.selectedStatus[i] === 'stockout') ? 'stockout' : (confirmNow ? 'confirmed' : 'available');
             var tName=(typeof t==='string'?t:(t.testName||'')).trim();
             var tId=(t&&t.testId)?t.testId:'';
             var cUuid=(t&&t.conceptUuid)?t.conceptUuid:'';
             selections.push({testId:tId,testName:tName,conceptUuid:cUuid,status:st});
         });
-        if(!hasSelection){
-            window.showAppToast('Selection Required', 'Please mark at least one test as Available or Stock-Out.', 'warning');
+
+        if (selections.length === 0) {
+            window.showAppToast('Selection Error', 'No tests available to evaluate for this order.', 'warning');
             return;
         }
 
         var saveBtn = document.querySelector('#stockoutPanel .btn-success');
         if (saveBtn) {
-            saveBtn.innerHTML = 'Saving & Dispatching...';
+            saveBtn.innerHTML = confirmNow ? 'Confirming & Unlocking...' : 'Saving & Dispatching...';
             saveBtn.style.opacity = '0.7';
             saveBtn.disabled = true;
         }
 
-        var data={orderId:order,selections:selections};
+        var data={orderId:order,selections:selections,confirmNow:!!confirmNow};
+        var postPayload = '';
+        var origToJSON = Array.prototype.toJSON;
+        try {
+            delete Array.prototype.toJSON;
+            postPayload = JSON.stringify(data);
+        } finally {
+            if (origToJSON) Array.prototype.toJSON = origToJSON;
+        }
+
         new Ajax.Request('<%=basePath%>pages/dashboard/saveStockOutSelections.jsp',{
             method:'post',
             contentType:'application/json',
-            postBody:JSON.stringify(data),
+            postBody:postPayload,
             onSuccess:function(xhr){
-                if (saveBtn) { saveBtn.innerHTML = 'Save Selections'; saveBtn.style.opacity = '1'; saveBtn.disabled = false; }
+                if (saveBtn) { saveBtn.innerHTML = 'Save & Send to Billing'; saveBtn.style.opacity = '1'; saveBtn.disabled = false; }
                 try{
                     var resp=JSON.parse(xhr.responseText);
                     if(resp.success){
@@ -1057,18 +1210,25 @@ var StockOut={
                         if(window.sentToBillingSampleIds){
                             window.sentToBillingSampleIds.add(String(order));
                         }
+                        if(resp.confirmed && window.confirmedSampleIds){
+                            window.confirmedSampleIds.add(String(order));
+                        }
 
                         var detailMsg = '';
-                        if(resp.availableCount > 0 && resp.stockOutCount > 0){
+                        if(resp.confirmed){
+                            detailMsg = 'Quotation confirmed in Odoo! Sample collection is unlocked.';
+                        } else if(resp.availableCount > 0 && resp.stockOutCount > 0){
                             detailMsg = resp.availableCount + ' test(s) sent to Odoo Billing. ' + resp.stockOutCount + ' stock-out test(s) voided in OpenMRS.';
                         } else if(resp.availableCount > 0){
                             detailMsg = resp.availableCount + ' test(s) verified Available and sent to Odoo Billing.';
-                        } else {
+                        } else if(resp.stockOutCount > 0){
                             detailMsg = resp.stockOutCount + ' test(s) marked Stock-Out and excluded from billing.';
+                        } else {
+                            detailMsg = 'Stock-out evaluation saved and sent to Odoo Billing.';
                         }
 
                         sessionStorage.setItem('pendingToast', JSON.stringify({
-                            title: 'Stock Evaluation Saved & Sent to Billing',
+                            title: resp.confirmed ? 'Billing Approved & Confirmed ✓' : 'Stock Evaluation Saved & Sent to Billing',
                             message: detailMsg,
                             type: 'success',
                             duration: 4500
@@ -1083,8 +1243,49 @@ var StockOut={
                 }
             },
             onFailure:function(xhr){
-                if (saveBtn) { saveBtn.innerHTML = 'Save Selections'; saveBtn.style.opacity = '1'; saveBtn.disabled = false; }
+                if (saveBtn) { saveBtn.innerHTML = 'Save & Send to Billing'; saveBtn.style.opacity = '1'; saveBtn.disabled = false; }
                 window.showAppToast('Network Error', 'Save request failed with status: ' + (xhr.status || 'network error'), 'error');
+            }
+        });
+    },
+
+    confirmBilling: function(orderId, patientId) {
+        var btn = document.getElementById('btn-confirm-' + orderId);
+        if (btn) {
+            btn.innerHTML = 'Confirming...';
+            btn.style.opacity = '0.7';
+            btn.disabled = true;
+        }
+        new Ajax.Request('<%=basePath%>pages/dashboard/sendToBilling.jsp?action=confirmQuotation&orderId=' + encodeURIComponent(orderId) + '&patientId=' + encodeURIComponent(patientId || ''), {
+            method: 'post',
+            onSuccess: function(xhr) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    if (resp.success) {
+                        if (window.confirmedSampleIds) {
+                            window.confirmedSampleIds.add(String(orderId));
+                        }
+                        if (window.confirmedPatientRefs && patientId) {
+                            window.confirmedPatientRefs.add(String(patientId).trim());
+                        }
+                        sessionStorage.setItem('pendingToast', JSON.stringify({
+                            title: 'Quotation Confirmed & Approved',
+                            message: 'Quotation approved in Odoo! Sample collection unlocked.',
+                            type: 'success',
+                            duration: 4500
+                        }));
+                        window.location.href = window.location.pathname + '?_t=' + new Date().getTime();
+                    } else {
+                        window.showAppToast('Confirmation Failed', resp.error || 'Could not confirm quotation in Odoo', 'error');
+                        if (btn) { btn.innerHTML = 'Confirm Billing &#10003;'; btn.style.opacity = '1'; btn.disabled = false; }
+                    }
+                } catch(e) {
+                    window.location.href = window.location.pathname + '?_t=' + new Date().getTime();
+                }
+            },
+            onFailure: function() {
+                window.showAppToast('Network Error', 'Failed to reach server to confirm quotation.', 'error');
+                if (btn) { btn.innerHTML = 'Confirm Billing &#10003;'; btn.style.opacity = '1'; btn.disabled = false; }
             }
         });
     },
@@ -1200,7 +1401,7 @@ var StockOut={
             availableTests:self.getAvailableTests()
         };
 
-        new Ajax.Request('pages/dashboard/saveStockOutNotice.jsp',{
+        new Ajax.Request('<%=basePath%>pages/dashboard/saveStockOutNotice.jsp',{
             method:'post',
             contentType:'application/json',
             postBody:JSON.stringify(saveData),

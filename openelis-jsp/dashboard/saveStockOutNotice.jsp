@@ -11,7 +11,18 @@
     String noticeNumber = json.optString("noticeNumber", "");
     String patientName = json.optString("patientName", "");
     String orderId = json.optString("orderId", "");
-    JSONArray stockOutTests = json.optJSONArray("stockOutTests");
+    JSONArray stockOutTests = null;
+    Object sotObj = json.opt("stockOutTests");
+    if (sotObj instanceof JSONArray) {
+        stockOutTests = (JSONArray) sotObj;
+    } else if (sotObj instanceof String) {
+        String sotStr = ((String) sotObj).trim();
+        if (!sotStr.isEmpty()) {
+            try {
+                stockOutTests = new JSONArray(sotStr);
+            } catch (Exception ignore) {}
+        }
+    }
 
     Session hSession = null;
     Transaction tx = null;
@@ -86,6 +97,10 @@
         if (tx != null) try { tx.rollback(); } catch (Exception ex) {}
         String msg = e.getMessage() != null ? e.getMessage().replace("\"", "\\\"").replace("\n", " ") : "unknown error";
         out.print("{\"success\":false,\"error\":\"" + msg + "\"}");
+    } finally {
+        try {
+            HibernateUtil.closeSession();
+        } catch (Exception ignore) {}
     }
 %><%!
     private static final String ODOO_URL = "http://odoo:8069";

@@ -47,9 +47,11 @@ Bahmni.Common.Util.DateUtil = {
     },
 
     subtractSeconds: function (date, seconds) {
+        if (!seconds) return date;
         return moment(date).subtract(seconds, 'seconds').toDate();
     },
     subtractDays: function (date, days) {
+        if (!days) return date;
         return this.addDays(date, -1 * days);
     },
     subtractISOWeekDays: function (date, days) {
@@ -60,9 +62,11 @@ Bahmni.Common.Util.DateUtil = {
             : 7 + moment(date).isoWeekday() - days;
     },
     subtractMonths: function (date, months) {
+        if (!months) return date;
         return this.addMonths(date, -1 * months);
     },
     subtractYears: function (date, years) {
+        if (!years) return date;
         return this.addYears(date, -1 * years);
     },
 

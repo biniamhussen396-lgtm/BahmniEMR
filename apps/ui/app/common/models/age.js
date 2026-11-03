@@ -24,10 +24,25 @@ angular.module('bahmni.common.models')
         };
 
         var calculateBirthDate = function (age) {
+            if (!age) return null;
+            var years = parseInt(age.years, 10) || 0;
+            var months = parseInt(age.months, 10) || 0;
+            var days = parseInt(age.days, 10) || 0;
+
+            if (years === 0 && months === 0 && days === 0) {
+                return null;
+            }
+
             var birthDate = dateUtil.now();
-            birthDate = dateUtil.subtractYears(birthDate, age.years);
-            birthDate = dateUtil.subtractMonths(birthDate, age.months);
-            birthDate = dateUtil.subtractDays(birthDate, age.days);
+            if (years > 0) {
+                birthDate = dateUtil.subtractYears(birthDate, years);
+            }
+            if (months > 0) {
+                birthDate = dateUtil.subtractMonths(birthDate, months);
+            }
+            if (days > 0) {
+                birthDate = dateUtil.subtractDays(birthDate, days);
+            }
             return birthDate;
         };
 

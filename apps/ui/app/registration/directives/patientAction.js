@@ -72,20 +72,25 @@ angular.module('bahmni.registration')
                     var searchParams = {
                         patient: uuid,
                         includeInactive: false,
-                        v: "custom:(uuid,visitType,location:(uuid))"
+                        v: "custom:(uuid,visitType:(uuid,name),location:(uuid,name))"
                     };
                     spinner.forPromise(visitService.search(searchParams).then(function (response) {
-                        var results = response.data.results;
-                        $scope.existedActiveVisits = results;
-                        var activeVisitForCurrentLoginLocation;
-                        if (results) {
-                            activeVisitForCurrentLoginLocation = _.filter(results, function (result) {
-                                return result.location.uuid === visitLocationUuid;
-                            });
+                        var results = (response.data && response.data.results) ? response.data.results : [];
+                        var matchedVisit = null;
+                        if (results.length > 0) {
+                            if (visitLocationUuid) {
+                                matchedVisit = _.find(results, function (result) {
+                                    return result.location && result.location.uuid === visitLocationUuid;
+                                });
+                            }
+                            matchedVisit = matchedVisit || results[0];
                         }
-                        self.hasActiveVisit = activeVisitForCurrentLoginLocation && (activeVisitForCurrentLoginLocation.length > 0);
+                        self.hasActiveVisit = !!matchedVisit;
                         if (self.hasActiveVisit) {
-                            self.activeVisit = activeVisitForCurrentLoginLocation[0];
+                            self.activeVisit = matchedVisit;
+                            $scope.existedActiveVisits = [matchedVisit].concat(_.without(results, matchedVisit));
+                        } else {
+                            $scope.existedActiveVisits = [];
                         }
                         setForwardActionKey();
                     }));
@@ -229,9 +234,12 @@ angular.module('bahmni.registration')
                 };
 
                 var goToVisitPage = function (patientData) {
-                    $scope.patient.uuid = patientData.patient.uuid;
-                    $scope.patient.name = patientData.patient.person.names[0].display;
-                    $location.path("/patient/" + patientData.patient.uuid + "/visit");
+                    var p = (patientData && patientData.patient) ? patientData.patient : (patientData || {});
+                    var person = p.person || (patientData && patientData.person);
+                    $scope.patient = $scope.patient || {};
+                    $scope.patient.uuid = p.uuid || $scope.patient.uuid;
+                    $scope.patient.name = (person && person.names && person.names[0] && person.names[0].display) || p.display || $scope.patient.name || '';
+                    $location.path("/patient/" + $scope.patient.uuid + "/visit");
                 };
 
                 var isEmptyVisitLocation = function () {

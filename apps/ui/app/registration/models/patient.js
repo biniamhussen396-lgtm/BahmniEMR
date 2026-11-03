@@ -4,15 +4,17 @@ angular.module('bahmni.registration')
     .factory('patient', ['age', 'identifiers', function (age, identifiers) {
         var create = function () {
             var calculateAge = function () {
-                if (this.birthdate) {
-                    this.age = age.fromBirthDate(this.birthdate);
+                var p = this || patient;
+                if (p.birthdate) {
+                    p.age = age.fromBirthDate(p.birthdate);
                 } else {
-                    this.age = age.create(null, null, null);
+                    p.age = age.create(null, null, null);
                 }
             };
 
             var calculateBirthDate = function () {
-                this.birthdate = age.calculateBirthDate(this.age);
+                var p = this || patient;
+                p.birthdate = age.calculateBirthDate(p.age);
             };
 
             var fullNameLocal = function () {

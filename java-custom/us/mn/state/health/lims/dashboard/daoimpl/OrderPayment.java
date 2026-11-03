@@ -47,6 +47,8 @@ public class OrderPayment {
             XmlRpcClient client = new XmlRpcClient();
             XmlRpcClientConfigImpl configCommon = new XmlRpcClientConfigImpl();
             configCommon.setServerURL(new URL(String.format("%s/xmlrpc/2/common", odooURL)));
+            configCommon.setConnectionTimeout(5000);
+            configCommon.setReplyTimeout(10000);
 
             Object authRes = client.execute(configCommon, "authenticate", Arrays.asList(new Object[] {
                 odooDB, odooUsername, odooPassword, Collections.emptyMap()
@@ -60,13 +62,15 @@ public class OrderPayment {
             XmlRpcClient clientObj = new XmlRpcClient();
             XmlRpcClientConfigImpl configObj = new XmlRpcClientConfigImpl();
             configObj.setServerURL(new URL(String.format("%s/xmlrpc/2/object", odooURL)));
+            configObj.setConnectionTimeout(5000);
+            configObj.setReplyTimeout(10000);
 
             // 1. Search sale.order.line by external_id in orderUuids
             List<Object> filter = new ArrayList<Object>();
             filter.add(Arrays.asList(new Object[] { "external_id", "in", orderUuids }));
 
             Map<String, Object> lineKwargs = new HashMap<String, Object>();
-            lineKwargs.put("fields", Arrays.asList(new String[] { "id", "external_id", "invoice_status", "order_id" }));
+            lineKwargs.put("fields", Arrays.asList(new String[] { "id", "external_id", "state", "invoice_status", "order_id" }));
 
             Object linesRes = clientObj.execute(configObj, "execute_kw", Arrays.asList(new Object[] {
                 odooDB, Integer.valueOf(uid), odooPassword, "sale.order.line", "search_read",
@@ -83,7 +87,7 @@ public class OrderPayment {
                 return orders;
             }
 
-            // Map sale.order id -> external_ids of lines that have invoice_status == 'invoiced'
+            Set<String> fullyPaidExternalIds = new HashSet<String>();
             Set<Integer> soIdsToQuery = new HashSet<Integer>();
             Map<Integer, List<String>> soToLineExtIds = new HashMap<Integer, List<String>>();
 
@@ -91,11 +95,16 @@ public class OrderPayment {
                 if (item instanceof Map) {
                     Map lMap = (Map) item;
                     String extId = (String) lMap.get("external_id");
+                    String lineState = (String) lMap.get("state");
                     String invStatus = (String) lMap.get("invoice_status");
                     Object orderIdField = lMap.get("order_id");
 
-                    // Gate check 1: Line must be strictly 'invoiced'
-                    if ("invoiced".equals(invStatus) && extId != null && orderIdField != null) {
+                    // Gate check: If line is confirmed in sale order ('sale' or 'done'), approve immediately!
+                    if (("sale".equals(lineState) || "done".equals(lineState)) && extId != null) {
+                        fullyPaidExternalIds.add(extId);
+                    }
+
+                    if (extId != null && orderIdField != null) {
                         Integer soId = null;
                         if (orderIdField instanceof Object[]) {
                             Object[] arr = (Object[]) orderIdField;
@@ -115,103 +124,91 @@ public class OrderPayment {
                 }
             }
 
-            if (soIdsToQuery.isEmpty()) {
-                return orders;
-            }
+            if (!soIdsToQuery.isEmpty()) {
+                // 2. Read sale.order to retrieve related state and invoice_ids
+                Map<String, Object> soKwargs = new HashMap<String, Object>();
+                soKwargs.put("fields", Arrays.asList(new String[] { "id", "state", "invoice_ids" }));
 
-            // 2. Read sale.order to retrieve related invoice_ids
-            Map<String, Object> soKwargs = new HashMap<String, Object>();
-            soKwargs.put("fields", Arrays.asList(new String[] { "id", "invoice_ids" }));
+                Object soRes = clientObj.execute(configObj, "execute_kw", Arrays.asList(new Object[] {
+                    odooDB, Integer.valueOf(uid), odooPassword, "sale.order", "read",
+                    Arrays.asList(new Object[] { new ArrayList<Integer>(soIdsToQuery) }),
+                    soKwargs
+                }));
 
-            Object soRes = clientObj.execute(configObj, "execute_kw", Arrays.asList(new Object[] {
-                odooDB, Integer.valueOf(uid), odooPassword, "sale.order", "read",
-                Arrays.asList(new Object[] { new ArrayList<Integer>(soIdsToQuery) }),
-                soKwargs
-            }));
+                if (soRes instanceof Object[]) {
+                    Set<Integer> allInvoiceIds = new HashSet<Integer>();
+                    Map<Integer, List<Integer>> soToInvoices = new HashMap<Integer, List<Integer>>();
 
-            if (!(soRes instanceof Object[])) {
-                return orders;
-            }
+                    for (Object obj : (Object[]) soRes) {
+                        if (obj instanceof Map) {
+                            Map sMap = (Map) obj;
+                            Integer soId = (Integer) sMap.get("id");
+                            String soState = (String) sMap.get("state");
+                            // If sale order is confirmed ('sale' or 'done'), approve all its lines immediately!
+                            if (("sale".equals(soState) || "done".equals(soState)) && soId != null) {
+                                List<String> extList = soToLineExtIds.get(soId);
+                                if (extList != null) fullyPaidExternalIds.addAll(extList);
+                            }
 
-            Set<Integer> allInvoiceIds = new HashSet<Integer>();
-            Map<Integer, List<Integer>> soToInvoices = new HashMap<Integer, List<Integer>>();
-
-            for (Object obj : (Object[]) soRes) {
-                if (obj instanceof Map) {
-                    Map sMap = (Map) obj;
-                    Integer soId = (Integer) sMap.get("id");
-                    Object invIdsObj = sMap.get("invoice_ids");
-                    List<Integer> invList = new ArrayList<Integer>();
-                    if (invIdsObj instanceof Object[]) {
-                        for (Object o : (Object[]) invIdsObj) if (o instanceof Integer) { invList.add((Integer) o); allInvoiceIds.add((Integer) o); }
-                    } else if (invIdsObj instanceof List) {
-                        for (Object o : (List) invIdsObj) if (o instanceof Integer) { invList.add((Integer) o); allInvoiceIds.add((Integer) o); }
-                    }
-                    if (soId != null) {
-                        soToInvoices.put(soId, invList);
-                    }
-                }
-            }
-
-            if (allInvoiceIds.isEmpty()) {
-                return orders;
-            }
-
-            // 3. Read account.move for payment verification: state == 'posted', payment_state in ('paid', 'in_payment'), amount_residual <= 0.0
-            Map<String, Object> invKwargs = new HashMap<String, Object>();
-            invKwargs.put("fields", Arrays.asList(new String[] { "id", "state", "payment_state", "amount_residual" }));
-
-            Object invRes = clientObj.execute(configObj, "execute_kw", Arrays.asList(new Object[] {
-                odooDB, Integer.valueOf(uid), odooPassword, "account.move", "read",
-                Arrays.asList(new Object[] { new ArrayList<Integer>(allInvoiceIds) }),
-                invKwargs
-            }));
-
-            if (!(invRes instanceof Object[])) {
-                return orders;
-            }
-
-            Map<Integer, Boolean> invoiceIsPaid = new HashMap<Integer, Boolean>();
-            for (Object obj : (Object[]) invRes) {
-                if (obj instanceof Map) {
-                    Map iMap = (Map) obj;
-                    Integer invId = (Integer) iMap.get("id");
-                    String state = (String) iMap.get("state");
-                    String paymentState = (String) iMap.get("payment_state");
-                    Object residualObj = iMap.get("amount_residual");
-                    double residual = 999999.0;
-                    if (residualObj instanceof Number) {
-                        residual = ((Number) residualObj).doubleValue();
+                            Object invIdsObj = sMap.get("invoice_ids");
+                            List<Integer> invList = new ArrayList<Integer>();
+                            if (invIdsObj instanceof Object[]) {
+                                for (Object o : (Object[]) invIdsObj) if (o instanceof Integer) { invList.add((Integer) o); allInvoiceIds.add((Integer) o); }
+                            } else if (invIdsObj instanceof List) {
+                                for (Object o : (List) invIdsObj) if (o instanceof Integer) { invList.add((Integer) o); allInvoiceIds.add((Integer) o); }
+                            }
+                            if (soId != null) {
+                                soToInvoices.put(soId, invList);
+                            }
+                        }
                     }
 
-                    // Gate check 2: invoice must be posted, payment_state must be paid/in_payment, and residual balance must be <= 0.0
-                    boolean isPaid = "posted".equals(state) &&
-                                     ("paid".equals(paymentState) || "in_payment".equals(paymentState)) &&
-                                     residual <= 0.0001;
-                    invoiceIsPaid.put(invId, Boolean.valueOf(isPaid));
-                }
-            }
+                    if (!allInvoiceIds.isEmpty()) {
+                        // 3. Read account.move for payment verification
+                        Map<String, Object> invKwargs = new HashMap<String, Object>();
+                        invKwargs.put("fields", Arrays.asList(new String[] { "id", "state", "payment_state", "amount_residual" }));
 
-            // 4. Determine which external IDs are fully paid
-            Set<String> fullyPaidExternalIds = new HashSet<String>();
-            for (Map.Entry<Integer, List<Integer>> entry : soToInvoices.entrySet()) {
-                Integer soId = entry.getKey();
-                List<Integer> invIds = entry.getValue();
-                if (invIds == null || invIds.isEmpty()) continue;
+                        Object invRes = clientObj.execute(configObj, "execute_kw", Arrays.asList(new Object[] {
+                            odooDB, Integer.valueOf(uid), odooPassword, "account.move", "read",
+                            Arrays.asList(new Object[] { new ArrayList<Integer>(allInvoiceIds) }),
+                            invKwargs
+                        }));
 
-                boolean soPaid = true;
-                for (Integer iId : invIds) {
-                    Boolean p = invoiceIsPaid.get(iId);
-                    if (p == null || !p.booleanValue()) {
-                        soPaid = false;
-                        break;
-                    }
-                }
+                        if (invRes instanceof Object[]) {
+                            Map<Integer, Boolean> invoiceIsPaid = new HashMap<Integer, Boolean>();
+                            for (Object obj : (Object[]) invRes) {
+                                if (obj instanceof Map) {
+                                    Map iMap = (Map) obj;
+                                    Integer invId = (Integer) iMap.get("id");
+                                    String state = (String) iMap.get("state");
+                                    String paymentState = (String) iMap.get("payment_state");
+                                    Object residualObj = iMap.get("amount_residual");
+                                    double residual = 999999.0;
+                                    if (residualObj instanceof Number) {
+                                        residual = ((Number) residualObj).doubleValue();
+                                    }
+                                    boolean isPaid = "posted".equals(state) &&
+                                                     ("paid".equals(paymentState) || "in_payment".equals(paymentState)) &&
+                                                     residual <= 0.0001;
+                                    invoiceIsPaid.put(invId, Boolean.valueOf(isPaid));
+                                }
+                            }
 
-                if (soPaid) {
-                    List<String> extIds = soToLineExtIds.get(soId);
-                    if (extIds != null) {
-                        fullyPaidExternalIds.addAll(extIds);
+                            for (Map.Entry<Integer, List<Integer>> entry : soToInvoices.entrySet()) {
+                                Integer soId = entry.getKey();
+                                List<Integer> invIds = entry.getValue();
+                                if (invIds == null || invIds.isEmpty()) continue;
+                                boolean soPaid = true;
+                                for (Integer iId : invIds) {
+                                    Boolean p = invoiceIsPaid.get(iId);
+                                    if (p == null || !p.booleanValue()) { soPaid = false; break; }
+                                }
+                                if (soPaid) {
+                                    List<String> extIds = soToLineExtIds.get(soId);
+                                    if (extIds != null) fullyPaidExternalIds.addAll(extIds);
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -33,16 +33,16 @@ Bahmni.Registration.CreatePatientRequestMapper = (function () {
                             "preferred": false
                         }
                     ],
-                    addresses: [_.pick(patient.address, constants.allAddressFileds)],
+                    addresses: [(_.pick(patient.address || {}, constants.allAddressFileds)) || {}],
                     birthdate: this.getBirthdate(patient.birthdate, patient.age),
                     birthdateEstimated: patient.birthdateEstimated,
                     gender: patient.gender,
-                    birthtime: Bahmni.Common.Util.DateUtil.parseLongDateToServerFormat(patient.birthtime),
+                    birthtime: (patient.birthtime && moment(patient.birthtime).isValid()) ? Bahmni.Common.Util.DateUtil.parseLongDateToServerFormat(patient.birthtime) : null,
                     personDateCreated: patient.registrationDate,
                     attributes: new Bahmni.Common.Domain.AttributeFormatter().getMrsAttributes(patient, patientAttributeTypes),
-                    dead: patient.dead,
-                    deathDate: Bahmni.Common.Util.DateUtil.getDateWithoutTime(patient.deathDate),
-                    causeOfDeath: patient.causeOfDeath ? patient.causeOfDeath.uuid : '',
+                    dead: !!patient.dead,
+                    deathDate: (patient.dead && patient.deathDate) ? Bahmni.Common.Util.DateUtil.getDateWithoutTime(patient.deathDate) : null,
+                    causeOfDeath: (patient.dead && patient.causeOfDeath && patient.causeOfDeath.uuid) ? patient.causeOfDeath.uuid : null,
                     uuid: patient.uuid
                 },
                 identifiers: identifiers,
@@ -51,7 +51,9 @@ Bahmni.Registration.CreatePatientRequestMapper = (function () {
         };
 
         this.setImage(patient, openMRSPatient);
-        openMRSPatient.relationships = patient.relationships;
+        openMRSPatient.relationships = _.filter(patient.relationships || [], function (rel) {
+            return rel && typeof rel === 'object' && (rel.relationshipType || rel.uuid);
+        });
         return openMRSPatient;
     };
 

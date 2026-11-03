@@ -1,0 +1,103 @@
+<style>
+@media print {
+    @page { size: A4 portrait; margin: 8mm; }
+    body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; }
+}
+.ob-form { width: 100%; max-width: 195mm; margin: 0 auto; }
+.form-header { border-bottom: 2px solid #be185d; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.form-title { font-size: 14pt; font-weight: bold; color: #be185d; text-align: center; margin-top: 4px; }
+.sec-title { background: #fdf2f8; padding: 4px 8px; font-weight: bold; border-left: 4px solid #be185d; margin: 10px 0 6px 0; font-size: 10.5pt; color: #831843; }
+table.form-grid { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+table.form-grid td, table.form-grid th { border: 1px solid #fbcfe8; padding: 5px 8px; font-size: 9.5pt; }
+table.form-grid th { background: #fdf2f8; font-weight: 600; text-align: left; }
+.sign-box { margin-top: 25px; display: flex; justify-content: space-between; }
+.sign-line { width: 45%; border-top: 1px solid #333; padding-top: 4px; font-size: 9pt; text-align: center; }
+</style>
+
+<div class="ob-form">
+    <!-- Branding Header -->
+    <div class="form-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <img ng-src="{{branding.printLogoUrl || branding.mainLogoUrl || '/bahmni_config/openmrs/apps/registration/registrationCardLayout/images/bahmni-icon.png'}}" style="max-height: 48px; max-width: 80px;" onerror="this.onerror=null;this.src='/bahmni/images/bahmniLogo.png';">
+            <div>
+                <div style="font-size: 14pt; font-weight: bold; color: #be185d;">{{branding.facilityName || location.name || 'Boru Meda General Hospital'}}</div>
+                <div style="font-size: 8.5pt; color: #64748b;">{{branding.tagline || 'Maternal & Child Health'}} | {{branding.address}} | Tel: {{branding.phone}}</div>
+            </div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 9pt; font-weight: bold; color: #be185d;">OB/GYN TRIAGE</div>
+            <div style="font-size: 8pt; color: #64748b;">{{today | bahmniDate}}</div>
+        </div>
+    </div>
+
+    <div class="form-title">OBSTETRICS &amp; GYNECOLOGY EMERGENCY TRIAGE / የማዋለጃ እና የፅንስ ትሪያጅ ቅጽ</div>
+
+    <!-- Patient Demographics -->
+    <div class="sec-title">1. Maternal Identification</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 20%;">Patient MRN:</th>
+            <td style="width: 30%; font-weight: bold; color: #be185d;">{{patient.primaryIdentifier.identifier}}</td>
+            <th style="width: 20%;">Triage Date:</th>
+            <td style="width: 30%;">{{encounterDateTime || today | bahmniDate}}</td>
+        </tr>
+        <tr>
+            <th>Mother's Full Name:</th>
+            <td style="font-weight: bold;">{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</td>
+            <th>Age / Parity:</th>
+            <td>{{patient.age.years || patient.age | age}} years (Gravida: ___ Para: ___)</td>
+        </tr>
+        <tr>
+            <th>Phone Number:</th>
+            <td>{{patient.phoneNumber || '-'}}</td>
+            <th>Emergency Contact:</th>
+            <td>{{patient.address.cityVillage || '-'}}</td>
+        </tr>
+    </table>
+
+    <!-- Obstetric History -->
+    <div class="sec-title">2. Obstetric &amp; Clinical Parameters</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 25%;">LMP:</th>
+            <td style="width: 25%;">____ / ____ / ________</td>
+            <th style="width: 25%;">EDD / GA:</th>
+            <td style="width: 25%;">____ wks</td>
+        </tr>
+        <tr>
+            <th>Fetal Heart Sound (FHS):</th>
+            <td style="font-weight: bold;">{{obs['FHS'] || 'Present (____ bpm)'}}</td>
+            <th>Contractions:</th>
+            <td>Frequency: ____/10m, Dur: ____s</td>
+        </tr>
+        <tr>
+            <th>Blood Pressure:</th>
+            <td>{{obs['Blood Pressure'] || '____ / ____ mmHg'}}</td>
+            <th>Temp / Pulse:</th>
+            <td>{{obs['Temperature'] || '____ °C'}} / {{obs['Pulse'] || '____ bpm'}}</td>
+        </tr>
+    </table>
+
+    <!-- Triage Assessment -->
+    <div class="sec-title">3. Triage Findings &amp; Destination</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 25%;">Chief Complaint:</th>
+            <td>Labor Pains / Rupture of Membranes / Bleeding / Decreased Fetal Movement</td>
+        </tr>
+        <tr>
+            <th>Membrane Status:</th>
+            <td>Intact / Ruptured (Liquor: Clear / Meconium-stained / Blood-stained)</td>
+        </tr>
+        <tr>
+            <th>Emergency Disposition:</th>
+            <td style="font-weight: bold; color: #be185d;">Labour Ward / Maternity Ward / Gynae Emergency / Delivery OR</td>
+        </tr>
+    </table>
+
+    <!-- Signatures -->
+    <div class="sign-box">
+        <div class="sign-line">Triage Midwife / Officer Signature</div>
+        <div class="sign-line">Attending Obstetrician / Resident Signature</div>
+    </div>
+</div>

@@ -19,24 +19,30 @@ angular.module('admin')
                 phone: '+251 33 111 2233',
                 email: 'info@borumedahospital.gov.et',
                 website: 'www.borumedahospital.gov.et',
+                browserTitle: 'BMH bahmni',
                 mainLogoUrl: '/bahmni/images/bahmniLogo.png',
                 loginLogoUrl: '/bahmni_config/openmrs/apps/home/logo.png',
                 printLogoUrl: '/bahmni_config/openmrs/apps/registration/registrationCardLayout/images/bahmni-icon.png',
-                faviconUrl: '/bahmni/favicon.ico'
+                faviconUrl: '/bahmni/favicon.ico',
+                footerLogoUrl: '/bahmni/images/cdhiLogo.png',
+                footerText: 'powered by CDHi',
+                footerLink: 'https://cdhi.uog.edu.et/'
             };
 
             $scope.previews = {
                 mainLogo: null,
                 loginLogo: null,
                 printLogo: null,
-                favicon: null
+                favicon: null,
+                footerLogo: null
             };
 
             $scope.payload = {
                 mainLogoBase64: null,
                 loginLogoBase64: null,
                 printLogoBase64: null,
-                faviconBase64: null
+                faviconBase64: null,
+                footerLogoBase64: null
             };
 
             $scope.fetchBranding = function () {
@@ -49,6 +55,7 @@ angular.module('admin')
                         $scope.previews.loginLogo = res.data.loginLogoUrlWithCache || res.data.loginLogoUrl;
                         $scope.previews.printLogo = res.data.printLogoUrlWithCache || res.data.printLogoUrl;
                         $scope.previews.favicon = res.data.faviconUrlWithCache || res.data.faviconUrl;
+                        $scope.previews.footerLogo = res.data.footerLogoUrlWithCache || res.data.footerLogoUrl;
                     }
                 }, function (err) {
                     $scope.loading = false;
@@ -110,6 +117,15 @@ angular.module('admin')
                 }
             };
 
+            $scope.onFooterLogoSelected = function (element) {
+                if (element.files && element.files[0]) {
+                    readFileAsDataURL(element.files[0], function (dataUrl) {
+                        $scope.previews.footerLogo = dataUrl;
+                        $scope.payload.footerLogoBase64 = dataUrl;
+                    });
+                }
+            };
+
             $scope.saveBranding = function () {
                 if (!$scope.branding.facilityName) {
                     messagingService.showMessage('error', 'Facility / Hospital name cannot be empty.');
@@ -127,11 +143,15 @@ angular.module('admin')
                     phone: $scope.branding.phone,
                     email: $scope.branding.email,
                     website: $scope.branding.website,
+                    browserTitle: $scope.branding.browserTitle,
+                    footerText: $scope.branding.footerText,
+                    footerLink: $scope.branding.footerLink,
                     applyMainLogoToAll: $scope.applyMainLogoToAll,
                     mainLogoBase64: $scope.payload.mainLogoBase64,
                     loginLogoBase64: $scope.payload.loginLogoBase64,
                     printLogoBase64: $scope.payload.printLogoBase64,
-                    faviconBase64: $scope.payload.faviconBase64
+                    faviconBase64: $scope.payload.faviconBase64,
+                    footerLogoBase64: $scope.payload.footerLogoBase64
                 };
 
                 $http.post(API_BASE + '/branding', dataToSend).then(function (res) {
@@ -144,7 +164,8 @@ angular.module('admin')
                         mainLogoBase64: null,
                         loginLogoBase64: null,
                         printLogoBase64: null,
-                        faviconBase64: null
+                        faviconBase64: null,
+                        footerLogoBase64: null
                     };
                     messagingService.showMessage('info', 'Hospital branding and logos updated successfully across all pages and print documents!');
                     $timeout(function () {

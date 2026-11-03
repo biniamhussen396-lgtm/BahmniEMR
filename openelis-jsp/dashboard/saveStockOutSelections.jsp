@@ -4,14 +4,50 @@
     BufferedReader reader = request.getReader();
     String line;
     while ((line = reader.readLine()) != null) bodyBuilder.append(line);
-    JSONObject json = new JSONObject(bodyBuilder.toString());
+    String rawBody = bodyBuilder.toString().trim();
+    JSONObject json = null;
+    if (!rawBody.isEmpty() && rawBody.startsWith("{")) {
+        try {
+            json = new JSONObject(rawBody);
+        } catch (Exception ignore) {}
+    }
+    if (json == null) json = new JSONObject();
 
     String orderId = json.optString("orderId", "").trim();
+    if (orderId.isEmpty()) {
+        orderId = request.getParameter("orderId");
+        if (orderId == null) orderId = "";
+        orderId = orderId.trim();
+    }
     if (orderId.isEmpty()) {
         out.print("{\"success\":false,\"error\":\"orderId is required\"}");
         return;
     }
-    JSONArray selections = json.optJSONArray("selections");
+
+    JSONArray selections = null;
+    Object selObj = json.opt("selections");
+    if (selObj instanceof JSONArray) {
+        selections = (JSONArray) selObj;
+    } else if (selObj instanceof String) {
+        String selStr = ((String) selObj).trim();
+        if (!selStr.isEmpty()) {
+            try {
+                selections = new JSONArray(selStr);
+            } catch (Exception ignore) {}
+        }
+    }
+    if (selections == null) {
+        String selParam = request.getParameter("selections");
+        if (selParam != null && !selParam.trim().isEmpty()) {
+            try {
+                selections = new JSONArray(selParam.trim());
+            } catch (Exception ignore) {}
+        }
+    }
+    if (selections == null || selections.length() == 0) {
+        out.print("{\"success\":false,\"error\":\"No tests provided in selections payload\"}");
+        return;
+    }
 
     Session hSession = null;
     Transaction tx = null;
@@ -26,75 +62,76 @@
         tx = hSession.beginTransaction();
 
         java.math.BigDecimal sid = new java.math.BigDecimal(orderId);
-        java.math.BigDecimal altSid = null;
+        java.math.BigDecimal csid = sid;
         try {
-            List shRows = hSession.createSQLQuery(
-                "SELECT CASE WHEN samp_id = :sid THEN id ELSE samp_id END FROM sample_human WHERE samp_id = :sid OR id = :sid LIMIT 1"
-            ).setParameter("sid", sid).list();
-            if (shRows != null && !shRows.isEmpty() && shRows.get(0) != null) {
-                altSid = new java.math.BigDecimal(shRows.get(0).toString().trim());
+            List sCheck = hSession.createSQLQuery("SELECT id FROM sample WHERE id = :sid").setParameter("sid", sid).list();
+            if (sCheck == null || sCheck.isEmpty()) {
+                List shRows = hSession.createSQLQuery("SELECT samp_id FROM sample_human WHERE id = :sid").setParameter("sid", sid).list();
+                if (shRows != null && !shRows.isEmpty() && shRows.get(0) != null) {
+                    csid = new java.math.BigDecimal(shRows.get(0).toString().trim());
+                }
             }
         } catch (Exception ignore) {}
 
         // Get patient identifier (ST number) for Odoo sync
         try {
-            List pRows = hSession.createSQLQuery(
+            org.hibernate.Query pRows = hSession.createSQLQuery(
                 "SELECT pi.identity_data FROM sample_human sh " +
                 "JOIN patient_identity pi ON sh.patient_id = pi.patient_id " +
                 "JOIN patient_identity_type pit ON pi.identity_type_id = pit.id " +
-                "WHERE (sh.samp_id = :sid OR sh.id = :sid) AND pit.identity_type IN ('ST', 'NATIONAL', 'SUBJECT') " +
+                "WHERE (sh.samp_id = :csid OR sh.id = :csid) AND pit.identity_type IN ('ST', 'NATIONAL', 'SUBJECT') " +
                 "ORDER BY CASE WHEN pit.identity_type = 'ST' THEN 1 WHEN pit.identity_type = 'NATIONAL' THEN 2 ELSE 3 END " +
                 "LIMIT 1"
-            ).setParameter("sid", sid).list();
-            if (pRows != null && !pRows.isEmpty() && pRows.get(0) != null) {
-                patientRef = pRows.get(0).toString().trim();
+            );
+            pRows.setParameter("csid", csid);
+            List pResults = pRows.list();
+            if (pResults != null && !pResults.isEmpty() && pResults.get(0) != null) {
+                patientRef = pResults.get(0).toString().trim();
             }
         } catch (Exception ignore) {}
 
         if (patientRef.isEmpty()) {
             try {
-                List pRows = hSession.createSQLQuery(
+                org.hibernate.Query pQuery = hSession.createSQLQuery(
                     "SELECT pi.identity_data FROM sample_human sh " +
                     "JOIN patient_identity pi ON sh.patient_id = pi.patient_id " +
-                    "WHERE (sh.samp_id = :sid OR sh.id = :sid) AND pi.identity_data IS NOT NULL AND TRIM(pi.identity_data) != '' " +
+                    "WHERE (sh.samp_id = :csid OR sh.id = :csid) AND pi.identity_data IS NOT NULL AND TRIM(pi.identity_data) != '' " +
                     "ORDER BY LENGTH(pi.identity_data) ASC LIMIT 1"
-                ).setParameter("sid", sid).list();
-                if (pRows != null && !pRows.isEmpty() && pRows.get(0) != null) {
-                    patientRef = pRows.get(0).toString().trim();
+                );
+                pQuery.setParameter("csid", csid);
+                List pResults = pQuery.list();
+                if (pResults != null && !pResults.isEmpty() && pResults.get(0) != null) {
+                    patientRef = pResults.get(0).toString().trim();
                 }
             } catch (Exception ignore) {}
         }
 
         String sampleUuid = "";
         try {
-            List uRows = hSession.createSQLQuery("SELECT uuid FROM sample WHERE id = :sid" + (altSid != null ? " OR id = :altSid" : "") + " LIMIT 1")
-                .setParameter("sid", sid).list();
+            org.hibernate.Query uQuery = hSession.createSQLQuery("SELECT uuid FROM sample WHERE id = :csid LIMIT 1")
+                .setParameter("csid", csid);
+            List uRows = uQuery.list();
             if (uRows != null && !uRows.isEmpty() && uRows.get(0) != null) {
                 sampleUuid = uRows.get(0).toString().trim();
             }
         } catch (Exception ignore) {}
 
-        // Preserve prior sent_to_billing state if editing an already-sent order
-        boolean wasSentToBilling = false;
-        try {
-            org.hibernate.Query sentQ = hSession.createSQLQuery(
-                "SELECT bool_or(COALESCE(sent_to_billing, false)) FROM stock_out_selection WHERE sample_id = :sid"
-            ).setParameter("sid", sid);
-            List sentList = sentQ.list();
-            if (sentList != null && !sentList.isEmpty() && sentList.get(0) != null) {
-                wasSentToBilling = Boolean.TRUE.equals(sentList.get(0));
-            }
-        } catch (Exception ignore) {}
+        // Delete any existing entries for csid and sid to ensure clean state
+        hSession.createSQLQuery("DELETE FROM stock_out_selection WHERE sample_id = :csid OR sample_id = :sid")
+            .setParameter("csid", csid)
+            .setParameter("sid", sid)
+            .executeUpdate();
 
-        hSession.createSQLQuery("DELETE FROM stock_out_selection WHERE sample_id = :sid")
-            .setParameter("sid", sid).executeUpdate();
-
+        boolean confirmNow = json.optBoolean("confirmNow", false);
         if (selections != null) {
             for (int i = 0; i < selections.length(); i++) {
                 JSONObject s = selections.getJSONObject(i);
                 int tid = s.optInt("testId", 0);
                 String tn = s.optString("testName", "").trim();
-                String st = s.optString("status", "pending").trim();
+                String st = s.optString("status", "available").trim();
+                if (!"stockout".equalsIgnoreCase(st)) {
+                    st = confirmNow ? "confirmed" : "available";
+                }
                 String conceptUuid = s.optString("conceptUuid", "").trim();
 
                 // If testId is missing, look up from test table
@@ -122,27 +159,34 @@
                 if ("stockout".equalsIgnoreCase(st)) {
                     stockOutNames.add(tn);
                     if (!conceptUuid.isEmpty()) stockOutUuids.add(conceptUuid);
-                } else if ("available".equalsIgnoreCase(st)) {
+                } else {
                     availableNames.add(tn);
                     if (!conceptUuid.isEmpty()) availableUuids.add(conceptUuid);
                 }
 
-                hSession.createSQLQuery("INSERT INTO stock_out_selection (sample_id, test_id, test_name, status, concept_uuid, sent_to_billing, created_at, updated_at) VALUES (:sid, :tid, :tn, :st, :cu, :wasSent, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)")
-                    .setParameter("sid", sid)
+                hSession.createSQLQuery("INSERT INTO stock_out_selection (sample_id, test_id, test_name, status, concept_uuid, sent_to_billing, created_at, updated_at) VALUES (:csid, :tid, :tn, :st, :cu, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)")
+                    .setParameter("csid", csid)
                     .setParameter("tid", tid)
                     .setParameter("tn", tn)
                     .setParameter("st", st)
                     .setParameter("cu", conceptUuid)
-                    .setParameter("wasSent", true)
                     .executeUpdate();
 
+                if (!sid.equals(csid)) {
+                    hSession.createSQLQuery("INSERT INTO stock_out_selection (sample_id, test_id, test_name, status, concept_uuid, sent_to_billing, created_at, updated_at) VALUES (:sid, :tid, :tn, :st, :cu, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)")
+                        .setParameter("sid", sid)
+                        .setParameter("tid", tid)
+                        .setParameter("tn", tn)
+                        .setParameter("st", st)
+                        .setParameter("cu", conceptUuid)
+                        .executeUpdate();
+                }
             }
         }
 
         tx.commit();
 
         // Asynchronously execute background sync with Odoo and OpenMRS so the HTTP response is instantaneous (<50ms)
-        final boolean fWasSentToBilling = wasSentToBilling;
         final List<String> fStockOutNames = new ArrayList<String>(stockOutNames);
         final List<String> fStockOutUuids = new ArrayList<String>(stockOutUuids);
         final List<String> fAvailableNames = new ArrayList<String>(availableNames);
@@ -226,7 +270,7 @@
                         } catch (Exception ignore) {}
                     }
 
-                    // 2. Add evaluated and confirmed AVAILABLE tests to Odoo for billing (only if already sent to billing)
+                    // 2. Add evaluated and confirmed AVAILABLE tests to Odoo for billing
                     if (!fAvailableNames.isEmpty() && !fPatientRef.isEmpty()) {
                         try {
                             StringBuilder pyCmd = new StringBuilder();
@@ -256,6 +300,16 @@
                             }
                             pyCmd.append("]\n");
                             pyCmd.append("    }])\n");
+                            if (confirmNow) {
+                                pyCmd.append("    try:\n");
+                                pyCmd.append("        models.execute_kw('odoo', uid, pwd, 'api.event.worker', 'process_event', [{\n");
+                                pyCmd.append("            'category': 'confirm.sale.order',\n");
+                                pyCmd.append("            'patientId': '").append(fPatientRef).append("',\n");
+                                pyCmd.append("            'orderUuid': '").append(fSampleUuid).append("'\n");
+                                pyCmd.append("        }])\n");
+                                pyCmd.append("    except Exception:\n");
+                                pyCmd.append("        pass\n");
+                            }
 
                             ProcessBuilder pb = new ProcessBuilder("python", "-c", pyCmd.toString());
                             pb.redirectErrorStream(true);
@@ -267,10 +321,14 @@
             }
         }).start();
 
-        out.print("{\"success\":true,\"patientRef\":\"" + patientRef + "\",\"stockOutCount\":" + stockOutNames.size() + ",\"availableCount\":" + availableNames.size() + ",\"isSent\":true}");
+        out.print("{\"success\":true,\"patientRef\":\"" + patientRef + "\",\"stockOutCount\":" + stockOutNames.size() + ",\"availableCount\":" + availableNames.size() + ",\"isSent\":true,\"confirmed\":" + confirmNow + "}");
     } catch (Exception e) {
         if (tx != null) try { tx.rollback(); } catch (Exception ex) {}
         String msg = e.getMessage() != null ? e.getMessage().replace("\"", "\\\"").replace("\n", " ") : "unknown error";
         out.print("{\"success\":false,\"error\":\"" + msg + "\"}");
+    } finally {
+        try {
+            HibernateUtil.closeSession();
+        } catch (Exception ignore) {}
     }
 %>

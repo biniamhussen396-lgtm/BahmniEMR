@@ -56,10 +56,21 @@ angular.module('bahmni.common.uiHelper')
                 autofocus: true,
                 minLength: 2,
                 source: function (request, response) {
-                    source(attrs.id, request.term, attrs.itemType).then(function (data) {
-                        var results = responseMap ? responseMap(data.data) : data.data;
-                        response(results);
-                    });
+                    try {
+                        var queryPromise = source(attrs.id, request.term, attrs.itemType);
+                        if (queryPromise && typeof queryPromise.then === 'function') {
+                            queryPromise.then(function (data) {
+                                var results = responseMap ? responseMap(data && data.data) : (data && data.data);
+                                response(results || []);
+                            }, function () {
+                                response([]);
+                            });
+                        } else {
+                            response([]);
+                        }
+                    } catch (e) {
+                        response([]);
+                    }
                 },
                 select: function (event, ui) {
                     scope.$apply(function (scope) {

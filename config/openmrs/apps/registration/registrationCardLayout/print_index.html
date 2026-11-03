@@ -1,89 +1,83 @@
+<link rel="stylesheet" href="/bahmni_config/openmrs/apps/registration/registrationCardLayout/css/print.css"/>
 <link rel="stylesheet" href="/bahmni_config/openmrs/apps/registration/registrationCardLayout/css/indexStyle.css"/>
-<div class="A7 landscape">
-    <div class="sheet">
-        <div id="indexc-container">  
+<style>
+@media print {
+    @page { size: A7 landscape; margin: 3mm; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+}
+.index-card-wrapper {
+    width: 100mm;
+    max-height: 70mm;
+    border: 1px solid #333;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    font-size: 9pt;
+}
+.index-hdr {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1.5px solid #00796d;
+    padding-bottom: 4px;
+    margin-bottom: 5px;
+}
+.index-fac { font-size: 11pt; font-weight: bold; color: #00796d; }
+.index-tag { font-size: 7.5pt; color: #555; }
+.index-badge { font-size: 8.5pt; font-weight: bold; text-align: right; }
+.index-row { margin-bottom: 3px; }
+.index-lbl { font-size: 8pt; color: #555; }
+.index-val { font-weight: bold; font-size: 9.5pt; }
+</style>
 
-                <!-- <div class="title"> -->
-                        <!-- <img style="position:absolute;left:5mm;" id="barcode"
-                        jsbarcode-value="{{patient.primaryIdentifier.identifier}}"
-                        jsbarcode-width="1.2"
-                        jsbarcode-height="30"
-                        jsbarcode-margin="0"
-                        jsbarcode-displayValue="false"
-                        jsbarcode-textAlign="left"
-                        jsbarcode-textMargin="0"
-                        jsbarcode-fontSize="10"
-            
-                    /> -->
-                    <!-- <span style="font-family:nyala">ካርድ ማውጫ</span> <br/>
-                    INDEX CARD
-                </div> -->
-            
-                <!-- <table>
-                    <tr>
-                        <td>
-                            <span class="am-font">የተመዘገበበት ቀን</span><br/>
-                            Date of registration  <span class="am-value am-font">{{patient.registrationDate | bahmniDate}}</span>
-                        </td>
-                        <td></td>
-                    </tr>
-                </table> -->
-                <table>
-                    <tr>
-                        <td class="print-table-right-header">                            
-                            <span style="font-family:nyala">ቦሩ ሜዳ ሆስፒታል</span> <br/>
-                            BMGH Hospital
-                        </td>
-                        <td class="registrationCard-photo">
-                            <span style="font-family:nyala">ካርድ ማውጫ</span> <br/>
-                            INDEX CARD        
-                        </td>
-                    </tr>
-                </table>    
-                <table>
-                    <tr>
-                        <td class="first">               
-                            <span class="am-font">ስም</span><br/>
-                            Name  <span class="value">{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</span>               
-                        </td>
-                    </tr>
-                </table>
-                <table>
-                    <tr>
-                        <td  class="first">
-                            <span class="am-font">ፆታ</span><br/>
-                            Sex  <span class="value"> {{patient.gender}} </span>
-                        </td>
-                        <td>
-                            <span class="am-font">እድሜ</span><br/>
-                            Age  <span class="value"> {{patient.age.years}} </span>
-                        </td>
-                    </tr>
-                </table>
-                <table>
-                    <tr>
-                        <td class="first" style="padding-top:5px;">
-                            <span class="am-font">የህክምና ካርድ ቁጥር</span><br/>
-                            Medical record number  <span class="value" style="font-size:18pt">{{patient.primaryIdentifier.identifier}}</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding-top:5px; padding-bottom:5px; text-align: center">
-                            <img id="barcode" jsbarcode-value="{{patient.primaryIdentifier.identifier}}"
-                                jsbarcode-width="2" jsbarcode-height="50" jsbarcode-margin="0"
-                                jsbarcode-displayValue="false" jsbarcode-textAlign="left" jsbarcode-textMargin="0"
-                                jsbarcode-fontSize="10" />
-                        </td>
-                    </tr>
-                </table>        
-            </div>
+<div class="index-card-wrapper">
+    <div class="index-hdr">
+        <div>
+            <div class="index-fac">{{branding.facilityName || location.name || 'Boru Meda General Hospital'}}</div>
+            <div class="index-tag">{{branding.tagline || 'General Hospital EMR System'}}</div>
+        </div>
+        <div class="index-badge">
+            <span style="font-family:nyala;">ካርድ ማውጫ</span><br/>
+            INDEX CARD
+        </div>
+    </div>
+
+    <div class="index-row">
+        <span class="index-lbl">Name / ስም: </span>
+        <span class="index-val">{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</span>
+    </div>
+
+    <div style="display: flex; justify-content: space-between;" class="index-row">
+        <div>
+            <span class="index-lbl">Sex / ፆታ: </span>
+            <span class="index-val">{{patient.gender}}</span>
+        </div>
+        <div>
+            <span class="index-lbl">Age / እድሜ: </span>
+            <span class="index-val">{{patient.age.years || patient.age | age}}</span>
+        </div>
+        <div>
+            <span class="index-lbl">Date: </span>
+            <span class="index-val">{{patient.registrationDate | bahmniDate}}</span>
+        </div>
+    </div>
+
+    <div class="index-row" style="margin-top: 4px;">
+        <span class="index-lbl">MRN / የህክምና ካርድ ቁጥር: </span>
+        <span class="index-val" style="font-size: 13pt; color: #00796d;">{{patient.primaryIdentifier.identifier}}</span>
+    </div>
+
+    <div style="text-align: center; margin-top: 4px;">
+        <img id="barcode_index" jsbarcode-value="{{patient.primaryIdentifier.identifier}}"
+             jsbarcode-width="1.6" jsbarcode-height="30" jsbarcode-margin="0"
+             jsbarcode-displayValue="false" />
     </div>
 </div>
-
 
 <script type="text/javascript" src="/bahmni_config/openmrs/apps/JsBarcode.all.min.js"></script>
 <script>
     (function() {
-        JsBarcode("#barcode").init();
+        if (window.JsBarcode) {
+            JsBarcode("#barcode_index").init();
+        }
     })();
 </script>

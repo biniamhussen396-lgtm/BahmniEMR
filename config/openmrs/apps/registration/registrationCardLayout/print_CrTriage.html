@@ -1,0 +1,99 @@
+<style>
+@media print {
+    @page { size: A4 portrait; margin: 8mm; }
+    body { font-family: Arial, sans-serif; font-size: 10pt; color: #111; }
+}
+.cr-form { width: 100%; max-width: 195mm; margin: 0 auto; }
+.form-header { border-bottom: 2px solid #00796d; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.form-title { font-size: 14pt; font-weight: bold; color: #00796d; text-align: center; margin-top: 4px; }
+.sec-title { background: #f1f5f9; padding: 4px 8px; font-weight: bold; border-left: 4px solid #00796d; margin: 10px 0 6px 0; font-size: 10.5pt; }
+table.form-grid { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+table.form-grid td, table.form-grid th { border: 1px solid #cbd5e1; padding: 5px 8px; font-size: 9.5pt; }
+table.form-grid th { background: #f8fafc; font-weight: 600; text-align: left; }
+.sign-box { margin-top: 25px; display: flex; justify-content: space-between; }
+.sign-line { width: 45%; border-top: 1px solid #333; padding-top: 4px; font-size: 9pt; text-align: center; }
+</style>
+
+<div class="cr-form">
+    <!-- Branding Header -->
+    <div class="form-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <img ng-src="{{branding.printLogoUrl || branding.mainLogoUrl || '/bahmni_config/openmrs/apps/registration/registrationCardLayout/images/bahmni-icon.png'}}" style="max-height: 48px; max-width: 80px;" onerror="this.onerror=null;this.src='/bahmni/images/bahmniLogo.png';">
+            <div>
+                <div style="font-size: 14pt; font-weight: bold; color: #00796d;">{{branding.facilityName || location.name || 'Boru Meda General Hospital'}}</div>
+                <div style="font-size: 8.5pt; color: #64748b;">{{branding.tagline || 'Central Registration &amp; Primary Triage'}} | {{branding.address}} | Tel: {{branding.phone}}</div>
+            </div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 9pt; font-weight: bold; color: #00796d;">CENTRAL TRIAGE</div>
+            <div style="font-size: 8pt; color: #64748b;">{{today | bahmniDate}}</div>
+        </div>
+    </div>
+
+    <div class="form-title">CENTRAL TRIAGE &amp; REGISTRATION INTAKE FORM / ማዕከላዊ ምዝገባ እና ትሪያጅ ቅጽ</div>
+
+    <!-- Patient Demographics -->
+    <div class="sec-title">1. Patient Demographic Information</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 20%;">Patient MRN:</th>
+            <td style="width: 30%; font-weight: bold; color: #00796d;">{{patient.primaryIdentifier.identifier}}</td>
+            <th style="width: 20%;">Registration Date:</th>
+            <td style="width: 30%;">{{patient.registrationDate || today | bahmniDate}}</td>
+        </tr>
+        <tr>
+            <th>Full Name:</th>
+            <td style="font-weight: bold;">{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</td>
+            <th>Gender / Age:</th>
+            <td>{{patient.gender}} / {{patient.age.years || patient.age | age}}</td>
+        </tr>
+        <tr>
+            <th>Phone:</th>
+            <td>{{patient.phoneNumber || '-'}}</td>
+            <th>Address:</th>
+            <td>{{patient.address.cityVillage || '-'}} (Kebele {{patient.address.address2 || '-'}})</td>
+        </tr>
+    </table>
+
+    <!-- Triage Screening & Vitals -->
+    <div class="sec-title">2. Initial Screening &amp; Vital Signs</div>
+    <table class="form-grid">
+        <tr style="text-align: center; font-weight: bold; background: #f8fafc;">
+            <td>BP (mmHg)</td>
+            <td>Pulse (bpm)</td>
+            <td>Temp (°C)</td>
+            <td>Resp Rate (/min)</td>
+            <td>Weight (kg)</td>
+        </tr>
+        <tr style="text-align: center; height: 30px;">
+            <td>{{obs['Blood Pressure'] || '____ / ____'}}</td>
+            <td>{{obs['Pulse'] || '____'}}</td>
+            <td>{{obs['Temperature'] || '____'}}</td>
+            <td>{{obs['Respiratory Rate'] || '____'}}</td>
+            <td>{{obs['Weight'] || '____'}}</td>
+        </tr>
+    </table>
+
+    <!-- Destination & Clinic Routing -->
+    <div class="sec-title">3. Chief Complaint &amp; Clinic Routing</div>
+    <table class="form-grid">
+        <tr>
+            <th style="width: 25%;">Chief Complaint:</th>
+            <td>{{obs['Chief Complaint'] || obs['Triage Chief Complaint'] || 'General Consultation Intake'}}</td>
+        </tr>
+        <tr>
+            <th>Triage Priority:</th>
+            <td style="font-weight: bold;">Routine OPD / Priority OPD / Emergency Transfer</td>
+        </tr>
+        <tr>
+            <th>Assigned OPD Clinic:</th>
+            <td style="font-weight: bold; color: #00796d;">Adult OPD / Pediatrics / MCH-ANC / Chronic Care / Eye / Dental</td>
+        </tr>
+    </table>
+
+    <!-- Signatures -->
+    <div class="sign-box">
+        <div class="sign-line">Triage Officer Signature</div>
+        <div class="sign-line">Central Registration Desk Stamp</div>
+    </div>
+</div>

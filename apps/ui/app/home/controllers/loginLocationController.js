@@ -1,8 +1,8 @@
 'use strict';
 
 angular.module('bahmni.home')
-    .controller('LoginLocationController', ['$rootScope', '$scope', '$window', '$location', 'sessionService', 'initialData', 'spinner', '$q', '$stateParams', '$bahmniCookieStore', 'localeService', '$translate', 'userService', 'auditLogService',
-        function ($rootScope, $scope, $window, $location, sessionService, initialData, spinner, $q, $stateParams, $bahmniCookieStore, localeService, $translate, userService, auditLogService) {
+    .controller('LoginLocationController', ['$rootScope', '$scope', '$window', '$location', '$http', 'sessionService', 'initialData', 'spinner', '$q', '$stateParams', '$bahmniCookieStore', 'localeService', '$translate', 'userService', 'auditLogService',
+        function ($rootScope, $scope, $window, $location, $http, sessionService, initialData, spinner, $q, $stateParams, $bahmniCookieStore, localeService, $translate, userService, auditLogService) {
             var redirectUrl = $location.search()['from'];
             var landingPagePath = "/dashboard";
             var loginPagePath = "/login";
@@ -66,6 +66,19 @@ angular.module('bahmni.home')
                 $scope.headerText = response.data.loginPage.showHeaderText;
                 $scope.titleText = response.data.loginPage.showTitleText;
                 $scope.helpLink = response.data.helpLink.url;
+                if (response.data.loginPage && response.data.loginPage.footerText) $scope.footerText = response.data.loginPage.footerText;
+                if (response.data.loginPage && response.data.loginPage.footerLink) $scope.footerLink = response.data.loginPage.footerLink;
+                if (response.data.loginPage && response.data.loginPage.footerLogo) $scope.footerLogo = response.data.loginPage.footerLogo;
+                if (response.data.homePage && response.data.homePage.browserTitle) $window.document.title = response.data.homePage.browserTitle;
+            });
+
+            $http.get('/backup-api/branding', { ignoreErrors: true }).then(function (res) {
+                if (res.data) {
+                    if (res.data.footerText) $scope.footerText = res.data.footerText;
+                    if (res.data.footerLink) $scope.footerLink = res.data.footerLink;
+                    if (res.data.footerLogoUrl) $scope.footerLogo = res.data.footerLogoUrl;
+                    if (res.data.browserTitle) $window.document.title = res.data.browserTitle;
+                }
             });
 
             localeService.getLocalesLangs().then(function (response) {
