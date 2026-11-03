@@ -1,12 +1,25 @@
 <%@ page language="java" contentType="application/json; charset=utf-8" import="java.util.*,us.mn.state.health.lims.hibernate.HibernateUtil,org.hibernate.*,org.json.*,java.io.*,java.net.*"%><%@ page import="javax.net.ssl.*"%><%
     response.setHeader("Cache-Control", "no-cache");
-    StringBuilder bodyBuilder = new StringBuilder();
-    BufferedReader reader = request.getReader();
-    String line;
-    while ((line = reader.readLine()) != null) bodyBuilder.append(line);
-    String body = bodyBuilder.toString();
-
-    JSONObject json = new JSONObject(body);
+    String body = "";
+    int cl = request.getContentLength();
+    if (cl > 0) {
+        try {
+            char[] buf = new char[cl];
+            BufferedReader reader = request.getReader();
+            int total = 0;
+            while (total < cl) {
+                int count = reader.read(buf, total, cl - total);
+                if (count == -1) break;
+                total += count;
+            }
+            body = new String(buf, 0, total).trim();
+        } catch (Exception ignore) {}
+    }
+    JSONObject json = null;
+    if (body.startsWith("{")) {
+        try { json = new JSONObject(body); } catch (Exception ignore) {}
+    }
+    if (json == null) json = new JSONObject();
     String accessionNumber = json.optString("accessionNumber", "");
     String noticeNumber = json.optString("noticeNumber", "");
     String patientName = json.optString("patientName", "");

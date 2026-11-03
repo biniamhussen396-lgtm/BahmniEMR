@@ -77,6 +77,8 @@ angular.module('httpErrorInterceptor', [])
                         !_.includes(response.config.url, "LabLocationList") &&
                         !_.includes(response.config.url, "labLocationList") &&
                         !_.includes(response.config.url, "openelis") &&
+                        !_.includes(response.config.url, "systemdate") &&
+                        !_.includes(response.config.url, "cgi-bin") &&
                         !_.includes(response.config.url, "backup-api")) {
                         showError("The requested information does not exist");
                     }

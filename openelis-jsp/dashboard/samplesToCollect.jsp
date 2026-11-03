@@ -1197,6 +1197,7 @@ var StockOut={
         new Ajax.Request('<%=basePath%>pages/dashboard/saveStockOutSelections.jsp',{
             method:'post',
             contentType:'application/json',
+            parameters:{orderId:order,selections:postPayload,confirmNow:!!confirmNow},
             postBody:postPayload,
             onSuccess:function(xhr){
                 if (saveBtn) { saveBtn.innerHTML = 'Save & Send to Billing'; saveBtn.style.opacity = '1'; saveBtn.disabled = false; }

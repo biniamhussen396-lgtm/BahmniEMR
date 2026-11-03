@@ -31,6 +31,7 @@ angular.module('bahmni.common.domain')
         this.serverDateTime = function () {
             return $http.get(Bahmni.Common.Constants.serverDateTimeUrl, {
                 method: "GET",
+                ignoreErrors: true,
                 headers: {
                     Accept: 'text/plain'
                 }

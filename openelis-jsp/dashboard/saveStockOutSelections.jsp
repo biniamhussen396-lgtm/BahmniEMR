@@ -1,67 +1,80 @@
 <%@ page language="java" contentType="application/json; charset=utf-8" import="java.util.*,us.mn.state.health.lims.hibernate.HibernateUtil,org.hibernate.*,org.json.*,java.io.*"%><%
     response.setHeader("Cache-Control", "no-cache");
-    StringBuilder bodyBuilder = new StringBuilder();
-    BufferedReader reader = request.getReader();
-    String line;
-    while ((line = reader.readLine()) != null) bodyBuilder.append(line);
-    String rawBody = bodyBuilder.toString().trim();
-    JSONObject json = null;
-    if (!rawBody.isEmpty() && rawBody.startsWith("{")) {
-        try {
-            json = new JSONObject(rawBody);
-        } catch (Exception ignore) {}
-    }
-    if (json == null) json = new JSONObject();
-
-    String orderId = json.optString("orderId", "").trim();
-    if (orderId.isEmpty()) {
-        orderId = request.getParameter("orderId");
-        if (orderId == null) orderId = "";
-        orderId = orderId.trim();
-    }
-    if (orderId.isEmpty()) {
-        out.print("{\"success\":false,\"error\":\"orderId is required\"}");
-        return;
-    }
-
-    JSONArray selections = null;
-    Object selObj = json.opt("selections");
-    if (selObj instanceof JSONArray) {
-        selections = (JSONArray) selObj;
-    } else if (selObj instanceof String) {
-        String selStr = ((String) selObj).trim();
-        if (!selStr.isEmpty()) {
-            try {
-                selections = new JSONArray(selStr);
-            } catch (Exception ignore) {}
-        }
-    }
-    if (selections == null) {
-        String selParam = request.getParameter("selections");
-        if (selParam != null && !selParam.trim().isEmpty()) {
-            try {
-                selections = new JSONArray(selParam.trim());
-            } catch (Exception ignore) {}
-        }
-    }
-    if (selections == null || selections.length() == 0) {
-        out.print("{\"success\":false,\"error\":\"No tests provided in selections payload\"}");
-        return;
-    }
-
     Session hSession = null;
     Transaction tx = null;
-    List<String> stockOutNames = new ArrayList<String>();
-    List<String> stockOutUuids = new ArrayList<String>();
-    List<String> availableNames = new ArrayList<String>();
-    List<String> availableUuids = new ArrayList<String>();
-    String patientRef = "";
-
     try {
+        String orderId = request.getParameter("orderId");
+        if (orderId == null) orderId = "";
+        orderId = orderId.trim();
+
+        String selParam = request.getParameter("selections");
+        boolean confirmNow = "true".equalsIgnoreCase(request.getParameter("confirmNow"));
+
+        JSONObject json = null;
+        if (orderId.isEmpty() || selParam == null || selParam.trim().isEmpty()) {
+            int cl = request.getContentLength();
+            if (cl > 0) {
+                try {
+                    char[] buf = new char[cl];
+                    BufferedReader reader = request.getReader();
+                    int total = 0;
+                    while (total < cl) {
+                        int count = reader.read(buf, total, cl - total);
+                        if (count == -1) break;
+                        total += count;
+                    }
+                    String rawBody = new String(buf, 0, total).trim();
+                    if (rawBody.startsWith("{")) {
+                        json = new JSONObject(rawBody);
+                    }
+                } catch (Exception ignore) {}
+            }
+        }
+
+        if (json != null) {
+            if (orderId.isEmpty()) {
+                orderId = json.optString("orderId", "").trim();
+            }
+            if (json.has("confirmNow")) {
+                confirmNow = json.optBoolean("confirmNow", confirmNow);
+            }
+        }
+
+        if (orderId.isEmpty()) {
+            out.print("{\"success\":false,\"error\":\"orderId is required\"}");
+            return;
+        }
+
+        JSONArray selections = null;
+        if (json != null) {
+            Object selObj = json.opt("selections");
+            if (selObj instanceof JSONArray) {
+                selections = (JSONArray) selObj;
+            } else if (selObj instanceof String) {
+                try { selections = new JSONArray(((String) selObj).trim()); } catch (Exception ignore) {}
+            }
+        }
+        if (selections == null && selParam != null && !selParam.trim().isEmpty()) {
+            try { selections = new JSONArray(selParam.trim()); } catch (Exception ignore) {}
+        }
+
+        if (selections == null || selections.length() == 0) {
+            out.print("{\"success\":false,\"error\":\"No tests provided in selections payload\"}");
+            return;
+        }
+
+        List<String> stockOutNames = new ArrayList<String>();
+        List<String> stockOutUuids = new ArrayList<String>();
+        List<String> availableNames = new ArrayList<String>();
+        List<String> availableUuids = new ArrayList<String>();
+        String patientRef = "";
+
         hSession = HibernateUtil.getSession();
         tx = hSession.beginTransaction();
 
-        java.math.BigDecimal sid = new java.math.BigDecimal(orderId);
+        String numericOrderId = orderId.replaceAll("[^0-9]", "");
+        if (numericOrderId.isEmpty()) numericOrderId = "0";
+        java.math.BigDecimal sid = new java.math.BigDecimal(numericOrderId);
         java.math.BigDecimal csid = sid;
         try {
             List sCheck = hSession.createSQLQuery("SELECT id FROM sample WHERE id = :sid").setParameter("sid", sid).list();
@@ -122,7 +135,6 @@
             .setParameter("sid", sid)
             .executeUpdate();
 
-        boolean confirmNow = json.optBoolean("confirmNow", false);
         if (selections != null) {
             for (int i = 0; i < selections.length(); i++) {
                 JSONObject s = selections.getJSONObject(i);
@@ -193,6 +205,7 @@
         final List<String> fAvailableUuids = new ArrayList<String>(availableUuids);
         final String fPatientRef = patientRef;
         final String fSampleUuid = sampleUuid;
+        final boolean fConfirmNow = confirmNow;
 
         new Thread(new Runnable() {
             public void run() {
@@ -211,7 +224,7 @@
                             pyCmd.append("if uid:\n");
                             pyCmd.append("    models = xmlrpclib.ServerProxy('http://odoo:8069/xmlrpc/2/object')\n");
                             pyCmd.append("    models.execute_kw('odoo', uid, pwd, 'api.event.worker', 'process_event', [{\n");
-                            pyCmd.append("        'category': 'cancel.order',\n");
+                            pyCmd.append("        'category': 'handle.stockout.tests',\n");
                             pyCmd.append("        'patientId': '").append(fPatientRef).append("',\n");
                             pyCmd.append("        'orderUuid': '").append(fSampleUuid).append("',\n");
                             pyCmd.append("        'stockOutTestNames': [");
@@ -228,40 +241,29 @@
                             pyCmd.append("]\n");
                             pyCmd.append("    }])\n");
 
-                            // Void matching active orders in OpenMRS
-                            pyCmd.append("try:\n");
-                            pyCmd.append("    p_req = urllib2.Request('http://openmrs:8080/openmrs/ws/rest/v1/patient?q=").append(fPatientRef).append("&v=default')\n");
-                            pyCmd.append("    p_req.add_header('Authorization', 'Basic ' + base64.b64encode('admin:Admin123'))\n");
-                            pyCmd.append("    p_res = urllib2.urlopen(p_req)\n");
-                            pyCmd.append("    p_data = json.loads(p_res.read())\n");
-                            pyCmd.append("    if p_data.get('results'):\n");
-                            pyCmd.append("        p_uuid = p_data['results'][0]['uuid']\n");
-                            pyCmd.append("        o_req = urllib2.Request('http://openmrs:8080/openmrs/ws/rest/v1/order?patient=' + p_uuid + '&v=full')\n");
-                            pyCmd.append("        o_req.add_header('Authorization', 'Basic ' + base64.b64encode('admin:Admin123'))\n");
-                            pyCmd.append("        o_res = urllib2.urlopen(o_req)\n");
-                            pyCmd.append("        orders_data = json.loads(o_res.read())\n");
-                            pyCmd.append("        opener = urllib2.build_opener(urllib2.HTTPHandler)\n");
-                            pyCmd.append("        so_list = [");
-                            for (int k = 0; k < fStockOutNames.size(); k++) {
-                                if (k > 0) pyCmd.append(",");
-                                pyCmd.append("'").append(fStockOutNames.get(k).replace("'", "\\'").toLowerCase()).append("'");
+                            // Void in OpenMRS REST
+                            if (!fStockOutUuids.isEmpty()) {
+                                pyCmd.append("    try:\n");
+                                pyCmd.append("        req = urllib2.Request('http://openmrs:8080/openmrs/ws/rest/v1/order?patient=' + '").append(fPatientRef).append("' + '&v=custom:(uuid,concept:(uuid,display),voided)')\n");
+                                pyCmd.append("        req.add_header('Authorization', 'Basic ' + base64.b64encode('admin:Admin123'))\n");
+                                pyCmd.append("        resp = urllib2.urlopen(req, timeout=5)\n");
+                                pyCmd.append("        data = json.loads(resp.read())\n");
+                                pyCmd.append("        so_uuids = set([");
+                                for (int k = 0; k < fStockOutUuids.size(); k++) {
+                                    if (k > 0) pyCmd.append(",");
+                                    pyCmd.append("'").append(fStockOutUuids.get(k)).append("'");
+                                }
+                                pyCmd.append("])\n");
+                                pyCmd.append("        for ord_item in data.get('results', []):\n");
+                                pyCmd.append("            if not ord_item.get('voided') and ord_item.get('concept', {}).get('uuid') in so_uuids:\n");
+                                pyCmd.append("                vreq = urllib2.Request('http://openmrs:8080/openmrs/ws/rest/v1/order/' + ord_item.get('uuid') + '?!purge')\n");
+                                pyCmd.append("                vreq.get_method = lambda: 'DELETE'\n");
+                                pyCmd.append("                vreq.add_header('Authorization', 'Basic ' + base64.b64encode('admin:Admin123'))\n");
+                                pyCmd.append("                try: urllib2.urlopen(vreq, timeout=5)\n");
+                                pyCmd.append("                except: pass\n");
+                                pyCmd.append("    except Exception:\n");
+                                pyCmd.append("        pass\n");
                             }
-                            pyCmd.append("]\n");
-                            pyCmd.append("        for ord_item in orders_data.get('results', []):\n");
-                            pyCmd.append("            disp = (ord_item.get('concept', {}).get('display') or '').strip().lower()\n");
-                            pyCmd.append("            ouuid = ord_item.get('uuid')\n");
-                            pyCmd.append("            for s_name in so_list:\n");
-                            pyCmd.append("                if s_name in disp or disp in s_name or (s_name == 'rbs' and 'random blood sugar' in disp):\n");
-                            pyCmd.append("                    v_req = urllib2.Request('http://openmrs:8080/openmrs/ws/rest/v1/order/' + ouuid + '?reason=Reagent+Out+of+Stock')\n");
-                            pyCmd.append("                    v_req.get_method = lambda: 'DELETE'\n");
-                            pyCmd.append("                    v_req.add_header('Authorization', 'Basic ' + base64.b64encode('admin:Admin123'))\n");
-                            pyCmd.append("                    try:\n");
-                            pyCmd.append("                        opener.open(v_req)\n");
-                            pyCmd.append("                    except Exception:\n");
-                            pyCmd.append("                        pass\n");
-                            pyCmd.append("                    break\n");
-                            pyCmd.append("except Exception:\n");
-                            pyCmd.append("    pass\n");
 
                             ProcessBuilder pb = new ProcessBuilder("python", "-c", pyCmd.toString());
                             pb.redirectErrorStream(true);
@@ -270,7 +272,7 @@
                         } catch (Exception ignore) {}
                     }
 
-                    // 2. Add evaluated and confirmed AVAILABLE tests to Odoo for billing
+                    // 2. Dispatch Available Tests to Odoo Billing
                     if (!fAvailableNames.isEmpty() && !fPatientRef.isEmpty()) {
                         try {
                             StringBuilder pyCmd = new StringBuilder();
@@ -300,7 +302,7 @@
                             }
                             pyCmd.append("]\n");
                             pyCmd.append("    }])\n");
-                            if (confirmNow) {
+                            if (fConfirmNow) {
                                 pyCmd.append("    try:\n");
                                 pyCmd.append("        models.execute_kw('odoo', uid, pwd, 'api.event.worker', 'process_event', [{\n");
                                 pyCmd.append("            'category': 'confirm.sale.order',\n");
