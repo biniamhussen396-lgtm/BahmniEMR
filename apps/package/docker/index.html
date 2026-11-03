@@ -265,23 +265,19 @@
 		}
 
 		const getAppLink = (app) => {
-			if (app.name === "crater" || app.name === "odoo") {
-				let url = '/';
-				if (window.location.host === "localhost") {
-					if (app.name === "odoo")
-						url = `http://${window.location.host}:8069`;
-					else
-						url = `http://${window.location.host}:81`;
-				} else if (app.linkPrefix) {
-					url =
-						window.location.protocol +
-						`//${app.linkPrefix}-` +
-						window.location.host;
-				}
-				return url;
+			if (app.link) {
+				return app.link;
 			}
-
-			return app.link ?? "/";
+			if (app.name === "odoo") {
+				return `http://${window.location.hostname}:8069`;
+			}
+			if (app.name === "crater") {
+				return `http://${window.location.hostname}:81`;
+			}
+			if (app.linkPrefix) {
+				return window.location.protocol + `//${app.linkPrefix}-` + window.location.host;
+			}
+			return "/";
 		};
 
 		function getApps() {
