@@ -85,7 +85,7 @@
             ]
         },
         "paymentConfig": {
-            "disable billing": true,
+            "disable billing": false,
             "payment window": 30
         },
         "erTriageFormLookup": {

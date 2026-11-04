@@ -10,7 +10,7 @@
         "encounterType": "RADIOLOGY",
         "visitType": "OPD",
         "paymentConfig": {
-            "disable checking": true
+            "disable checking": false
         },
         "ignoredTabularViewHeadings": [
             "uuid",
