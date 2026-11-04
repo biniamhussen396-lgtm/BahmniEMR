@@ -1,6 +1,6 @@
 {
   "facilityName": "Dessie HC",
-  "browserTitle": "BMH bahmni",
+  "browserTitle": "bahmni",
   "tagline": "HC EMR System",
   "welcomeMessage": "WELCOME TO Dessie HC EMR System",
   "address": "Dessie, Dessie, Amhara, Ethiopia",
@@ -14,5 +14,5 @@
   "footerLogoUrl": "/bahmni/images/cdhiLogo.png",
   "footerText": "powered by",
   "footerLink": "https://cdhi.uog.edu.et/",
-  "updatedAt": "2026-11-01T03:26:10.807711"
+  "updatedAt": "2026-11-04T04:59:55.517482"
 }

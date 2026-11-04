@@ -1,6 +1,9 @@
 # Git internals from subdirectories
 bahmni-docker/.git/
 
+# Implementation portal drag & drop staging folder
+bahmni-docker/bahmni-standard/portal_uploads/
+
 # Node modules
 **/node_modules/
 

@@ -11,10 +11,13 @@ Implements:
 """
 
 import os
+import re
 import sys
 import time
 import json
 import base64
+import queue
+import shutil
 import uuid
 import secrets
 import subprocess
@@ -39,7 +42,7 @@ SCRIPTS = {
     "clean_patient_data": {
         "file": os.path.join(BASE_DIR, "clean_patient_data.py"),
         "title": "Clean & Purge Patient Data",
-        "description": "Purge test/clinical patient data in OpenMRS & Odoo, reconfigure auto-MRN sequence, and re-apply Bahmni UI patches."
+        "description": "Purge test/clinical patient data in OpenMRS, OpenELIS, PACS & Odoo (Full Reset also deep-wipes Odoo business data: sale orders, invoices, partners), delete non-essential users, reconfigure auto-MRN sequence, and re-apply Bahmni UI patches."
     },
     "import_kphc_excel_patients": {
         "file": os.path.join(BASE_DIR, "import_kphc_excel_patients.py"),
@@ -377,6 +380,248 @@ def api_cancel():
             except Exception as e:
                 return jsonify({"success": False, "error": str(e)}), 500
     return jsonify({"success": False, "message": "No running process to cancel."})
+
+
+# ---------------------------------------------------------------------------
+# Native Windows File / Folder Picker  (for the path inputs on tools 2/4/5)
+# ---------------------------------------------------------------------------
+# Tkinter is single-threaded, so every dialog is served by ONE dedicated
+# worker thread. Flask request threads just hand a job over and wait for
+# the result. This returns REAL absolute host paths (unlike
+# <input type="file">, which browsers give fake paths for).
+_dialog_jobs = queue.Queue()
+_dialog_thread = None
+_dialog_thread_lock = threading.Lock()
+
+
+def _start_dialog_worker():
+    global _dialog_thread
+    with _dialog_thread_lock:
+        if _dialog_thread is not None and _dialog_thread.is_alive():
+            return
+
+        def dialog_worker():
+            while True:
+                kind, title, filetypes, initialdir, result_q = _dialog_jobs.get()
+                try:
+                    import tkinter as tk
+                    from tkinter import filedialog
+                    root = tk.Tk()
+                    root.withdraw()
+                    try:
+                        root.attributes("-topmost", True)
+                    except Exception:
+                        pass
+                    root.update()
+                    try:
+                        if kind == "dir":
+                            path = filedialog.askdirectory(
+                                parent=root, mustexist=True,
+                                title=title or "Select folder",
+                                initialdir=initialdir or None)
+                        else:
+                            path = filedialog.askopenfilename(
+                                parent=root,
+                                title=title or "Select file",
+                                initialdir=initialdir or None,
+                                filetypes=[tuple(x) for x in filetypes] if filetypes
+                                          else [("All files", "*.*")])
+                    finally:
+                        root.destroy()
+                    result_q.put(("ok", path or ""))
+                except Exception as exc:
+                    result_q.put(("error", str(exc)))
+
+        _dialog_thread = threading.Thread(
+            target=dialog_worker, daemon=True, name="path-picker-dialogs")
+        _dialog_thread.start()
+
+
+@app.route("/api/browse", methods=["POST"])
+@require_openelis_maintenance
+def api_browse():
+    """Open a native Windows file/folder dialog and return the absolute path."""
+    data = request.json or {}
+    kind = "dir" if str(data.get("type", "file")) == "dir" else "file"
+    title = str(data.get("title", ""))[:100]
+    filetypes = data.get("filetypes") or []
+
+    # Start browsing where the current value (or the user's home) lives.
+    current = str(data.get("current", "")).strip()
+    initialdir = os.path.expanduser("~")
+    if current:
+        candidate = current if kind == "dir" else os.path.dirname(current)
+        if candidate and os.path.isdir(candidate):
+            initialdir = candidate
+
+    _start_dialog_worker()
+    result_q = queue.Queue()
+    _dialog_jobs.put((kind, title, filetypes, initialdir, result_q))
+    try:
+        status, payload = result_q.get(timeout=1800)  # dialog may stay open a while
+    except queue.Empty:
+        return jsonify({"error": "No selection made (dialog timed out)."}), 504
+    if status == "error":
+        return jsonify({"error": f"Could not open the {kind} picker: {payload}"}), 500
+    if not payload:
+        return jsonify({"path": "", "cancelled": True})
+    return jsonify({"path": payload})
+
+
+# ---------------------------------------------------------------------------
+# In-page file browser + drag & drop upload  (path inputs on tools 2 / 4 / 5)
+# ---------------------------------------------------------------------------
+# Browsers never expose the real disk path of a dragged file, so a drop is
+# handled by copying the item into portal_uploads/ and handing that absolute
+# path back to the input. Clicking "Browse" walks the host filesystem instead.
+UPLOAD_ROOT = os.path.join(BASE_DIR, "portal_uploads")
+UPLOAD_CHUNK = 1 << 20          # 1 MB streamed writes (backups can be huge)
+UPLOAD_KEEP_DAYS = 7
+
+
+def _fs_existing(path):
+    """Expand ~ and $vars, absolutise, and return the path only if it exists."""
+    if not path:
+        return ""
+    path = str(path).strip().strip('"')
+    if not path:
+        return ""
+    path = os.path.abspath(os.path.expandvars(os.path.expanduser(path)))
+    return path if os.path.exists(path) else ""
+
+
+def _fs_drives():
+    if os.name == "nt":
+        import string
+        return [f"{letter}:\\" for letter in string.ascii_uppercase
+                if os.path.exists(f"{letter}:\\")]
+    return ["/"]
+
+
+def _fs_safe_parts(raw):
+    """Turn a browser-supplied relative path into safe, relative components."""
+    parts = []
+    for part in str(raw or "").replace("\\", "/").split("/"):
+        part = part.strip()
+        # drop empty, ".", ".." and drive-letter segments (e.g. "C:")
+        if not part or part in (".", "..") or (len(part) == 2 and part[1] == ":"):
+            continue
+        parts.append(part)
+    return parts
+
+
+def _fs_prune_uploads():
+    """Best-effort cleanup so repeated drops cannot fill the disk."""
+    try:
+        cutoff = time.time() - UPLOAD_KEEP_DAYS * 86400
+        for entry in os.scandir(UPLOAD_ROOT):
+            if entry.is_dir(follow_symlinks=False) and entry.stat().st_mtime < cutoff:
+                shutil.rmtree(entry.path, ignore_errors=True)
+    except Exception:
+        pass
+
+
+@app.route("/api/fs/list")
+@require_openelis_maintenance
+def api_fs_list():
+    """List a host directory so the picker modal can navigate by clicking."""
+    raw = (request.args.get("path") or "").strip()
+    if not raw:
+        # Nothing yet -> offer the removable/fixed drives as the entry point.
+        return jsonify({
+            "path": "", "parent": "", "drives": _fs_drives(), "entries": [],
+            "home": os.path.expanduser("~"), "uploads": UPLOAD_ROOT
+        })
+
+    path = _fs_existing(raw)
+    if not path:
+        return jsonify({"error": f"Path not found on this machine: {raw}"}), 404
+    if not os.path.isdir(path):
+        path = os.path.dirname(path)
+
+    entries = []
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    is_dir = entry.is_dir()
+                    stat = entry.stat()
+                    size, mtime = stat.st_size, stat.st_mtime
+                except OSError:
+                    is_dir, size, mtime = False, 0, 0
+                entries.append({
+                    "name": entry.name,
+                    "path": entry.path,
+                    "is_dir": is_dir,
+                    "size": size,
+                    "mtime": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else ""
+                })
+    except PermissionError:
+        return jsonify({"error": f"Access denied: {path}"}), 403
+    except OSError as exc:
+        return jsonify({"error": f"Cannot read {path}: {exc}"}), 400
+
+    entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
+    parent = os.path.dirname(path)
+    if parent == path:                 # filesystem root or drive root
+        parent = ""
+    return jsonify({
+        "path": path, "parent": parent, "drives": [], "entries": entries,
+        "home": os.path.expanduser("~"), "uploads": UPLOAD_ROOT
+    })
+
+
+@app.route("/api/fs/upload", methods=["POST"])
+@require_openelis_maintenance
+def api_fs_upload():
+    """Stream one dropped file into portal_uploads/<batch>/<root>/<relpath>."""
+    batch = re.sub(r"[^A-Za-z0-9_-]", "", str(request.form.get("batch", "")))[:40]
+    if not batch:
+        batch = uuid.uuid4().hex[:12]
+
+    root_parts = _fs_safe_parts(request.form.get("root_name", ""))
+    root_name = root_parts[-1] if root_parts else ""
+    rel_parts = _fs_safe_parts(request.form.get("relpath", ""))
+    if root_name and rel_parts and rel_parts[0] == root_name:
+        rel_parts = rel_parts[1:]      # root folder already lives in batch_dir
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "No file was received."}), 400
+
+    # Never trust the browser's filename: keep the basename only.
+    safe_name = os.path.basename(str(upload.filename).replace("\\", "/").strip())
+    if not safe_name:
+        safe_name = "dropped_file"
+    if rel_parts:
+        rel_parts[-1] = safe_name
+    else:
+        rel_parts = [safe_name]
+
+    batch_dir = os.path.join(UPLOAD_ROOT, batch, root_name) if root_name \
+        else os.path.join(UPLOAD_ROOT, batch)
+    target = os.path.join(batch_dir, *rel_parts)
+
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "wb") as out:
+            while True:
+                chunk = upload.stream.read(UPLOAD_CHUNK)
+                if not chunk:
+                    break
+                out.write(chunk)
+    except OSError as exc:
+        return jsonify({"error": f"Could not save the dropped file: {exc}"}), 500
+
+    _fs_prune_uploads()
+
+    root_path = os.path.join(UPLOAD_ROOT, batch, root_name) if root_name \
+        else os.path.dirname(target)
+    return jsonify({
+        "path": target,
+        "root": root_path,
+        "bytes": os.path.getsize(target)
+    })
 
 
 @app.route("/api/run/<script_key>", methods=["POST"])
@@ -786,6 +1031,86 @@ INDEX_TEMPLATE = """
       border-radius: 8px;
       padding: 8px 16px;
     }
+    /* ---- Path inputs (tools 2 / 4 / 5): click-to-pick + drag & drop ---- */
+    .path-zone {
+      position: relative;
+      border-radius: 10px;
+      transition: all 0.15s ease;
+    }
+    .path-zone.dragging {
+      background: #e7f1ff;
+      border: 1.5px dashed #0b5ed7;
+      padding: 8px;
+      box-shadow: inset 0 0 0 1px rgba(11, 94, 215, 0.15);
+    }
+    .path-drop {
+      margin-top: 6px;
+      font-size: 0.78rem;
+      color: #64748b;
+    }
+    .path-zone.dragging .path-drop {
+      color: #0b5ed7;
+      font-weight: 600;
+    }
+    .path-status {
+      min-height: 1.1em;
+      font-size: 0.76rem;
+      word-break: break-all;
+    }
+    /* ---- In-page file browser modal ---- */
+    .fs-crumb {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px;
+      font-size: 0.78rem;
+      margin-bottom: 6px;
+    }
+    .fs-crumb button {
+      border: none;
+      background: #f1f5f9;
+      border-radius: 5px;
+      padding: 2px 7px;
+      color: #0b5ed7;
+      font-size: 0.76rem;
+    }
+    .fs-crumb button:hover { background: #e2e8f0; }
+    .fs-list {
+      max-height: 44vh;
+      min-height: 180px;
+      overflow-y: auto;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .fs-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 10px;
+      border-bottom: 1px solid #f1f5f9;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .fs-row:last-child { border-bottom: none; }
+    .fs-row:hover { background: #f8fafc; }
+    .fs-row.selected { background: #e7f1ff; }
+    .fs-row .fs-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .fs-row .fs-meta {
+      color: #94a3b8;
+      font-size: 0.72rem;
+      white-space: nowrap;
+    }
+    .fs-empty {
+      padding: 28px 12px;
+      text-align: center;
+      color: #94a3b8;
+      font-size: 0.85rem;
+    }
   </style>
 </head>
 <body>
@@ -898,7 +1223,7 @@ INDEX_TEMPLATE = """
             <div id="collapseClean" class="accordion-collapse collapse show" data-bs-parent="#toolsAccordion">
               <div class="accordion-body">
                 <p class="text-muted small">
-                  Wipes test patient records from OpenMRS & Odoo, resets primary identifier global properties, configures the starting Auto-MRN sequence, and reapplies UI bugfix patches.
+                  Wipes test/clinical patient data from OpenMRS, OpenELIS, PACS (dcm4chee) & Odoo, deletes non-essential user accounts (keeps admin, superman and service accounts), resets primary identifier global properties, configures the starting Auto-MRN sequence, and reapplies UI bugfix patches. Full Reset also performs a deep Odoo business wipe (sale orders, invoices, payments, purchases, stock movements, customer/vendor partners). Selective mode (choice 2) is MRN-scoped in OpenMRS & Odoo only.
                 </p>
                 <div class="mb-3">
                   <label class="form-label fw-semibold small">Purge Scope Mode</label>
@@ -955,8 +1280,16 @@ INDEX_TEMPLATE = """
                 </p>
                 <div class="mb-3">
                   <label class="form-label fw-semibold small">Excel Spreadsheet File Path</label>
-                  <input type="text" id="excelFilePath" class="form-control form-control-sm" value="/home/kphcs/Documents/KPHCsmartcarePT.xlsx">
-                  <div class="form-text">You can enter a custom absolute path on the host or use the default standard path.</div>
+                  <div class="path-zone" id="zone-excelFilePath">
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text"><i class="fa-solid fa-file-excel text-success"></i></span>
+                      <input type="text" id="excelFilePath" class="form-control form-control-sm" data-kind="file" data-title="Select KPHC Excel patient file" data-filetypes="Excel Files (*.xlsx);Excel 97-2003 (*.xls);All Files (*.*)" value="/home/kphcs/Documents/KPHCsmartcarePT.xlsx">
+                      <button type="button" class="btn btn-outline-primary" title="Browse the server filesystem" onclick="browsePath('excelFilePath')"><i class="fa-solid fa-folder-open me-1"></i>Browse</button>
+                      <button type="button" class="btn btn-outline-secondary" title="Clear" onclick="clearPath('excelFilePath')"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="path-drop"><i class="fa-solid fa-hand-pointer me-1"></i>Click <b>Browse</b> to navigate the server and pick the file, or <b>drag &amp; drop</b> it here from File&nbsp;Explorer (it is copied into <code>portal_uploads</code>).</div>
+                    <div class="path-status" id="status-excelFilePath"></div>
+                  </div>
                 </div>
                 <button class="btn btn-success btn-action" onclick="executeExcelImport()">
                   <i class="fa-solid fa-upload me-1"></i> Execute Excel Import
@@ -1005,11 +1338,29 @@ INDEX_TEMPLATE = """
                 </p>
                 <div class="mb-3">
                   <label class="form-label fw-semibold small">Source SQL Archive Path (.sql.gz)</label>
-                  <input type="text" id="pdfBackupPath" class="form-control form-control-sm" value="/opt/emr/CentOS Bahmni backups/openmrs20261002_160501.sql.gz">
+                  <div class="path-zone" id="zone-pdfBackupPath">
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text"><i class="fa-solid fa-file-zipper text-danger"></i></span>
+                      <input type="text" id="pdfBackupPath" class="form-control form-control-sm" data-kind="file" data-title="Select source SQL backup archive" data-filetypes="SQL Archives (*.sql.gz,*.gz,*.sql);Compressed (*.zip,*.7z,*.rar);All Files (*.*)" value="/opt/emr/CentOS Bahmni backups/openmrs20261002_160501.sql.gz">
+                      <button type="button" class="btn btn-outline-primary" title="Browse the server filesystem" onclick="browsePath('pdfBackupPath')"><i class="fa-solid fa-folder-open me-1"></i>Browse</button>
+                      <button type="button" class="btn btn-outline-secondary" title="Clear" onclick="clearPath('pdfBackupPath')"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="path-drop"><i class="fa-solid fa-hand-pointer me-1"></i>Click <b>Browse</b> to pick the backup on the server, or <b>drag &amp; drop</b> the archive here (copied into <code>portal_uploads</code>).</div>
+                    <div class="path-status" id="status-pdfBackupPath"></div>
+                  </div>
                 </div>
                 <div class="mb-3">
                   <label class="form-label fw-semibold small">PDF Output Directory</label>
-                  <input type="text" id="pdfOutputDir" class="form-control form-control-sm" value="/opt/emr/backups/patient_summary_pdfs">
+                  <div class="path-zone" id="zone-pdfOutputDir">
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text"><i class="fa-solid fa-folder-tree text-danger"></i></span>
+                      <input type="text" id="pdfOutputDir" class="form-control form-control-sm" data-kind="dir" data-title="Select PDF output folder" value="/opt/emr/backups/patient_summary_pdfs">
+                      <button type="button" class="btn btn-outline-primary" title="Browse the server filesystem" onclick="browsePath('pdfOutputDir')"><i class="fa-solid fa-folder-open me-1"></i>Browse</button>
+                      <button type="button" class="btn btn-outline-secondary" title="Clear" onclick="clearPath('pdfOutputDir')"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="path-drop"><i class="fa-solid fa-hand-pointer me-1"></i>Click <b>Browse</b>, enter a folder and press <b>Select this folder</b>, or <b>drag &amp; drop</b> a folder here (copied into <code>portal_uploads</code>).</div>
+                    <div class="path-status" id="status-pdfOutputDir"></div>
+                  </div>
                 </div>
                 <button class="btn btn-danger btn-action" onclick="executePdfPipeline()">
                   <i class="fa-solid fa-wand-magic-sparkles me-1"></i> Run PDF Generation Pipeline
@@ -1034,7 +1385,16 @@ INDEX_TEMPLATE = """
                 </p>
                 <div class="mb-3">
                   <label class="form-label fw-semibold small">PDF Directory</label>
-                  <input type="text" id="attachPdfDir" class="form-control form-control-sm" value="/opt/emr/backups/patient_summary_pdfs">
+                  <div class="path-zone" id="zone-attachPdfDir">
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text"><i class="fa-solid fa-folder-open text-secondary"></i></span>
+                      <input type="text" id="attachPdfDir" class="form-control form-control-sm" data-kind="dir" data-title="Select folder of generated PDFs" value="/opt/emr/backups/patient_summary_pdfs">
+                      <button type="button" class="btn btn-outline-primary" title="Browse the server filesystem" onclick="browsePath('attachPdfDir')"><i class="fa-solid fa-folder-open me-1"></i>Browse</button>
+                      <button type="button" class="btn btn-outline-secondary" title="Clear" onclick="clearPath('attachPdfDir')"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="path-drop"><i class="fa-solid fa-hand-pointer me-1"></i>Click <b>Browse</b> and hit <b>Select this folder</b>, or <b>drag &amp; drop</b> the folder of PDFs here (copied into <code>portal_uploads</code>).</div>
+                    <div class="path-status" id="status-attachPdfDir"></div>
+                  </div>
                 </div>
                 <button class="btn btn-secondary btn-action" onclick="executeAttachDocs()">
                   <i class="fa-solid fa-link me-1"></i> Attach Documents to Bahmni
@@ -1080,6 +1440,48 @@ INDEX_TEMPLATE = """
 
   </div>
 
+  <!-- Reusable in-page file / folder picker (used by tools 2, 4 and 5) -->
+  <div class="modal fade" id="pathPickerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h5 class="modal-title fw-bold" id="pathPickerTitle"><i class="fa-solid fa-folder-tree me-2"></i>Select location</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-3">
+          <div class="d-flex gap-1 mb-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="fsNavigate('')"><i class="fa-solid fa-compact-disc me-1"></i>Drives</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="fsHome()"><i class="fa-solid fa-house me-1"></i>Home</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="fsUploads()"><i class="fa-solid fa-box-archive me-1"></i>Uploads</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="fsUp()"><i class="fa-solid fa-arrow-up me-1"></i>Up</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="fsNavigate(fsPath)"><i class="fa-solid fa-rotate-right me-1"></i>Refresh</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="browseNative()" title="Fall back to the native Windows picker"><i class="fa-solid fa-window-restore me-1"></i>Windows dialog</button>
+          </div>
+          <div class="fs-crumb" id="fsCrumb"></div>
+          <div class="input-group input-group-sm mb-2">
+            <span class="input-group-text"><i class="fa-solid fa-route"></i></span>
+            <input type="text" id="fsPathBox" class="form-control form-control-sm" placeholder="Type or paste a path, then press Enter" onkeydown="if(event.key==='Enter'){event.preventDefault();fsNavigate(this.value);}">
+            <button type="button" class="btn btn-outline-primary" onclick="fsNavigate(document.getElementById('fsPathBox').value)">Go</button>
+          </div>
+          <div class="input-group input-group-sm mb-2" id="fsFilterWrap" style="display: none;">
+            <span class="input-group-text">Show</span>
+            <select id="fsFilter" class="form-select form-select-sm" onchange="fsFilterIdx = parseInt(this.value, 10) || 0; fsRender();"></select>
+          </div>
+          <div class="fs-list" id="fsList"></div>
+          <div class="form-text small" id="fsStatus"></div>
+        </div>
+        <div class="modal-footer py-2">
+          <div class="input-group input-group-sm" style="flex: 1 1 auto;">
+            <span class="input-group-text"><i class="fa-solid fa-location-dot"></i></span>
+            <input type="text" id="fsSelected" class="form-control form-control-sm" placeholder="Selected path (you can also type it here)">
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-sm btn-primary" id="fsConfirmBtn" onclick="fsConfirm()"><i class="fa-solid fa-check me-1"></i>Select</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     let logOffset = 0;
@@ -1101,6 +1503,435 @@ INDEX_TEMPLATE = """
       document.getElementById('terminalOutput').textContent = '';
       logOffset = 0;
       document.getElementById('logCounter').textContent = '0 lines';
+    }
+
+    // ------------------------------------------------------------------
+    // Path inputs (tools 2 / 4 / 5): in-page file browser + drag & drop
+    // ------------------------------------------------------------------
+    const FS_BS = String.fromCharCode(92);   // backslash, kept out of literals
+    let fsInput = null, fsKind = 'file', fsTitle = 'Select location';
+    let fsPath = '', fsParent = '', fsDrives = [], fsEntries = [];
+    let fsFilters = [], fsFilterIdx = 0, fsSelected = '';
+    let fsHomePath = '', fsUploadsPath = '', fsModal = null;
+
+    function fsEsc(s) {
+      return String(s == null ? '' : s)
+        .split('&').join('&amp;')
+        .split('<').join('&lt;')
+        .split('>').join('&gt;')
+        .split('"').join('&quot;');
+    }
+
+    function fsNorm(p) { return String(p || '').split(FS_BS).join('/'); }
+
+    function fsDirOf(p) {
+      const n = fsNorm(p);
+      const i = n.lastIndexOf('/');
+      if (i < 0) return '';
+      let d = n.slice(0, i);
+      // "C:" alone is drive-relative on Windows - keep the trailing slash
+      if (/^[A-Za-z]:$/.test(d)) d += '/';
+      if (d === '' && n.charAt(0) === '/') d = '/';
+      return d;
+    }
+
+    function fsBaseOf(p) {
+      const n = fsNorm(p).replace(/\\/+$/, '');
+      return n.slice(n.lastIndexOf('/') + 1);
+    }
+
+    function fsSize(bytes) {
+      const b = Number(bytes) || 0;
+      if (b < 1024) return b + ' B';
+      if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+      if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+      return (b / 1073741824).toFixed(2) + ' GB';
+    }
+
+    function fsParseFiletypes(spec) {
+      const out = [];
+      String(spec || '').split(';').forEach(part => {
+        part = part.trim();
+        if (!part) return;
+        const m = part.match(/^(.*)\\((.*)\\)$/);
+        const label = (m ? m[1] : part).trim();
+        const pattern = m ? m[2] : '*.*';
+        const exts = [];
+        let all = false;
+        pattern.split(',').forEach(p => {
+          p = p.trim().toLowerCase();
+          if (p === '*.*' || p === '*') all = true;
+          else if (p.indexOf('*.') === 0) exts.push(p.slice(1));
+        });
+        out.push({label: label || part, exts: exts, all: all || exts.length === 0});
+      });
+      if (!out.length) out.push({label: 'All files', exts: [], all: true});
+      return out;
+    }
+
+    function fsMatches(name) {
+      const f = fsFilters[fsFilterIdx] || {all: true, exts: []};
+      if (f.all) return true;
+      const lower = String(name).toLowerCase();
+      return f.exts.some(e => lower.slice(-e.length) === e);
+    }
+
+    function setPathStatus(inputId, msg, level) {
+      const el = document.getElementById('status-' + inputId);
+      if (!el) return;
+      if (!msg) { el.innerHTML = ''; return; }
+      const cls = level === 'error' ? 'text-danger' : (level === 'success' ? 'text-success' : 'text-info');
+      const icon = level === 'error' ? 'fa-triangle-exclamation'
+                 : (level === 'success' ? 'fa-circle-check' : 'fa-circle-info');
+      el.className = 'path-status mt-1 ' + cls;
+      el.innerHTML = '<i class="fa-solid ' + icon + ' me-1"></i>' + fsEsc(msg);
+    }
+
+    function clearPath(inputId) {
+      const el = document.getElementById(inputId);
+      if (el) el.value = '';
+      setPathStatus(inputId, '', '');
+    }
+
+    // --- picker modal --------------------------------------------------
+    function browsePath(inputId) { openPathPicker(inputId); }
+
+    function openPathPicker(inputId) {
+      const el = document.getElementById(inputId);
+      if (!el) return;
+
+      fsInput = el;
+      fsKind = el.dataset.kind === 'dir' ? 'dir' : 'file';
+      fsTitle = el.dataset.title || 'Select location';
+      fsFilters = fsParseFiletypes(el.dataset.filetypes || '');
+      fsFilterIdx = 0;
+      fsPath = ''; fsParent = ''; fsDrives = []; fsEntries = []; fsSelected = '';
+
+      document.getElementById('pathPickerTitle').innerHTML =
+        '<i class="fa-solid ' + (fsKind === 'dir' ? 'fa-folder-tree' : 'fa-file-arrow-up') + ' me-2"></i>' + fsEsc(fsTitle);
+      document.getElementById('fsFilter').innerHTML =
+        fsFilters.map((f, i) => '<option value="' + i + '">' + fsEsc(f.label) + '</option>').join('');
+      document.getElementById('fsFilterWrap').style.display =
+        (fsKind === 'file' && fsFilters.length > 1) ? 'flex' : 'none';
+      document.getElementById('fsConfirmBtn').innerHTML = fsKind === 'dir'
+        ? '<i class="fa-solid fa-folder-open me-1"></i>Select this folder'
+        : '<i class="fa-solid fa-check me-1"></i>Select file';
+      document.getElementById('fsSelected').value = '';
+      document.getElementById('fsStatus').textContent = '';
+      document.getElementById('fsCrumb').innerHTML = '';
+      document.getElementById('fsList').innerHTML =
+        '<div class="fs-empty"><i class="fa-solid fa-spinner fa-spin me-1"></i>Loading...</div>';
+
+      if (!fsModal) fsModal = new bootstrap.Modal(document.getElementById('pathPickerModal'));
+      fsModal.show();
+
+      // Start where the input already points (dir for folders, parent for files)
+      const cur = (el.value || '').trim();
+      let start = '';
+      if (cur) {
+        if (fsKind === 'dir') start = cur;
+        else start = fsBaseOf(cur).indexOf('.') >= 0 ? fsDirOf(cur) : cur;
+      }
+      fsNavigate(start);
+    }
+
+    async function fsNavigate(path) {
+      const status = document.getElementById('fsStatus');
+      status.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Loading ' + fsEsc(path || 'drives') + ' ...';
+      try {
+        const resp = await fetch('/api/fs/list?path=' + encodeURIComponent(path || ''));
+        const data = await resp.json();
+        if (!resp.ok) {
+          if (fsKind === 'dir' && path) {
+            // Folder may not exist yet (e.g. an output dir the script creates)
+            fsPath = path; fsParent = ''; fsDrives = []; fsEntries = []; fsSelected = path;
+            fsRender();
+            status.innerHTML = '<span class="text-danger">' + fsEsc(data.error || 'Not found') + '</span>' +
+              ' <span class="text-muted">- you can still select it if the script will create it.</span>';
+          } else {
+            status.innerHTML = '<span class="text-danger">' + fsEsc(data.error || 'Cannot list that folder') + '</span>';
+          }
+          return;
+        }
+        if (data.home) fsHomePath = data.home;
+        if (data.uploads) fsUploadsPath = data.uploads;
+        fsPath = data.path || '';
+        fsParent = data.parent || '';
+        fsDrives = data.drives || [];
+        fsEntries = data.entries || [];
+        fsSelected = fsKind === 'dir' ? fsPath : '';
+        fsRender();
+        status.innerHTML = fsEntries.length
+          ? fsEsc(fsEntries.length + ' item(s)')
+          : '<span class="text-muted">This folder is empty.</span>';
+      } catch (err) {
+        status.innerHTML = '<span class="text-danger">Lookup failed: ' + fsEsc(err.message) + '</span>';
+      }
+    }
+
+    function fsHome() { fsNavigate(fsHomePath || ''); }
+    function fsUploads() { fsNavigate(fsUploadsPath || ''); }
+    function fsUp() { fsNavigate(fsParent || ''); }
+
+    function fsRender() {
+      // breadcrumb
+      const crumb = document.getElementById('fsCrumb');
+      if (!fsPath) {
+        crumb.innerHTML = '<span class="text-muted">This machine &mdash; pick a drive</span>';
+      } else {
+        const n = fsNorm(fsPath);
+        const segs = n.split('/').filter(s => s !== '');
+        let built = n.charAt(0) === '/' ? '/' : '';
+        let html = '<button type="button" data-p="" title="All drives"><i class="fa-solid fa-hard-drive"></i></button>';
+        segs.forEach((seg, idx) => {
+          built = built === '/' ? '/' + seg : (built ? built + '/' + seg : seg);
+          const last = idx === segs.length - 1;
+          html += '<span class="px-1 text-muted">/</span>' +
+            (last
+              ? '<button type="button" disabled class="fw-semibold">' + fsEsc(seg) + '</button>'
+              : '<button type="button" data-p="' + fsEsc(built) + '">' + fsEsc(seg) + '</button>');
+        });
+        crumb.innerHTML = html;
+      }
+
+      // selection box: folders always reflect the folder being viewed
+      if (fsKind === 'dir') {
+        fsSelected = fsPath;
+        document.getElementById('fsSelected').value = fsPath;
+      } else if (fsSelected) {
+        document.getElementById('fsSelected').value = fsSelected;
+      }
+
+      // list
+      let rows = '';
+      if (fsDrives.length) {
+        fsDrives.forEach(d => {
+          rows += '<div class="fs-row" data-path="' + fsEsc(d) + '" data-dir="1" title="' + fsEsc(d) + '">' +
+            '<i class="fa-solid fa-hard-drive text-primary me-2"></i>' +
+            '<span class="fs-name">' + fsEsc(d) + '</span>' +
+            '<span class="fs-meta">drive</span></div>';
+        });
+      } else {
+        if (fsParent) {
+          rows += '<div class="fs-row" data-path="' + fsEsc(fsParent) + '" data-dir="1">' +
+            '<i class="fa-solid fa-arrow-up text-secondary me-2"></i>' +
+            '<span class="fs-name fst-italic">.. (up one level)</span></div>';
+        }
+        fsEntries.forEach(e => {
+          if (e.is_dir) {
+            rows += '<div class="fs-row" data-path="' + fsEsc(e.path) + '" data-dir="1" title="' + fsEsc(e.path) + '">' +
+              '<i class="fa-solid fa-folder text-warning me-2"></i>' +
+              '<span class="fs-name">' + fsEsc(e.name) + '</span>' +
+              '<span class="fs-meta">' + fsEsc(e.mtime || '') + '</span></div>';
+          } else if (fsMatches(e.name)) {
+            rows += '<div class="fs-row" data-path="' + fsEsc(e.path) + '" data-dir="0" title="' + fsEsc(e.path) + '">' +
+              '<i class="fa-regular fa-file-lines text-secondary me-2"></i>' +
+              '<span class="fs-name">' + fsEsc(e.name) + '</span>' +
+              '<span class="fs-meta">' + fsSize(e.size) + ' &middot; ' + fsEsc(e.mtime || '') + '</span></div>';
+          }
+        });
+      }
+      document.getElementById('fsList').innerHTML = rows ||
+        '<div class="fs-empty"><i class="fa-regular fa-folder-open mb-2 d-block" style="font-size:2rem;"></i>' +
+        (fsKind === 'file' ? 'No files match this filter in this folder.' : 'This folder is empty.') + '</div>';
+    }
+
+    function fsPickRow(row) {
+      const path = row.dataset.path;
+      const isDir = row.dataset.dir === '1';
+      if (isDir) { fsNavigate(path); return; }
+      fsSelected = path;
+      document.querySelectorAll('#fsList .fs-row').forEach(r => {
+        r.classList.toggle('selected', r.dataset.path === path);
+      });
+      document.getElementById('fsSelected').value = path;
+      document.getElementById('fsStatus').innerHTML = '<i class="fa-solid fa-circle-check text-success me-1"></i>' + fsEsc(path);
+    }
+
+    function fsConfirm() {
+      if (!fsInput) return;
+      const typed = document.getElementById('fsSelected').value.trim();
+      const chosen = typed || fsSelected || (fsKind === 'dir' ? fsPath : '');
+      if (!chosen) {
+        alert('Pick a ' + (fsKind === 'dir' ? 'folder' : 'file') + ' first.');
+        return;
+      }
+      if (fsKind === 'file' && !fsMatches(fsBaseOf(chosen))) {
+        const label = (fsFilters[fsFilterIdx] || {label: 'the current filter'}).label;
+        if (!confirm('"' + fsBaseOf(chosen) + '" does not match "' + label + '". Select it anyway?')) return;
+      }
+      fsInput.value = chosen;
+      fsModal.hide();
+      setPathStatus(fsInput.id, (fsKind === 'dir' ? 'Folder' : 'File') + ' selected: ' + chosen, 'success');
+    }
+
+    // Fallback: the native Windows picker served by /api/browse
+    async function browseNative() {
+      if (!fsInput) return;
+      const status = document.getElementById('fsStatus');
+      status.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Waiting for the Windows dialog on the server ...';
+      try {
+        const resp = await fetch('/api/browse', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            type: fsKind,
+            title: fsTitle,
+            current: (fsInput.value || '').trim(),
+            filetypes: fsFilters.map(f => [
+              f.label,
+              f.all ? '*.*' : f.exts.map(e => '*' + e).join(';')
+            ])
+          })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          status.innerHTML = '<span class="text-danger">' + fsEsc(data.error || 'Picker failed') + '</span>';
+          return;
+        }
+        if (data.cancelled || !data.path) { status.textContent = ''; fsRender(); return; }
+        fsInput.value = data.path;
+        fsModal.hide();
+        setPathStatus(fsInput.id, (fsKind === 'dir' ? 'Folder' : 'File') + ' selected: ' + data.path, 'success');
+      } catch (err) {
+        status.innerHTML = '<span class="text-danger">' + fsEsc(err.message) + '</span>';
+      }
+    }
+
+    // --- drag & drop ---------------------------------------------------
+    function fsReadAll(reader) {
+      return new Promise(resolve => {
+        const out = [];
+        const step = () => reader.readEntries(chunk => {
+          if (!chunk || !chunk.length) { resolve(out); return; }
+          chunk.forEach(c => out.push(c));
+          step();
+        }, () => resolve(out));
+        step();
+      });
+    }
+
+    async function fsCollect(nodes, prefix) {
+      const out = [];
+      for (const node of nodes) {
+        const rel = prefix ? prefix + '/' + node.name : node.name;
+        if (node.isFile) {
+          try {
+            const file = await new Promise((res, rej) => node.file(res, rej));
+            if (file) out.push({file: file, rel: rel});
+          } catch (err) { /* unreadable entry: skip it */ }
+        } else if (node.isDirectory) {
+          const kids = await fsReadAll(node.createReader());
+          const sub = await fsCollect(kids, rel);
+          sub.forEach(s => out.push(s));
+        }
+      }
+      return out;
+    }
+
+    async function handlePathDrop(e, inputId) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      const kind = input.dataset.kind === 'dir' ? 'dir' : 'file';
+      const dt = e.dataTransfer;
+      if (!dt) return;
+
+      // Entry API keeps the relative structure (needed for folder drops)
+      let dropped = [];
+      try {
+        const items = dt.items ? Array.from(dt.items) : [];
+        const nodes = items.map(it => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null)).filter(Boolean);
+        if (nodes.length) dropped = await fsCollect(nodes, '');
+      } catch (err) { dropped = []; }
+      if (!dropped.length && dt.files) {
+        dropped = Array.from(dt.files).map(f => ({file: f, rel: f.name}));
+      }
+      if (!dropped.length) {
+        setPathStatus(inputId, 'Nothing usable was dropped on the box.', 'error');
+        return;
+      }
+
+      const folderDrop = dropped.some(d => d.rel.indexOf('/') >= 0);
+      const tops = [];
+      dropped.forEach(d => {
+        const top = d.rel.split('/')[0];
+        if (tops.indexOf(top) < 0) tops.push(top);
+      });
+
+      if (kind === 'file') {
+        if (folderDrop || dropped.length > 1) {
+          setPathStatus(inputId, 'This field takes a single file - drop one file, or use Browse.', 'error');
+          return;
+        }
+      } else if (!folderDrop) {
+        setPathStatus(inputId, 'This field takes a folder - drop a folder from File Explorer, or use Browse.', 'error');
+        return;
+      }
+
+      const rootName = kind === 'dir' && tops.length === 1 ? tops[0] : '';
+      const batch = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+      setPathStatus(inputId, 'Uploading 1/' + dropped.length + ' ...', 'info');
+      let last = null;
+      for (let i = 0; i < dropped.length; i++) {
+        const item = dropped[i];
+        const fd = new FormData();
+        fd.append('batch', batch);
+        fd.append('root_name', rootName);
+        fd.append('relpath', item.rel);
+        fd.append('file', item.file, item.file.name);
+
+        let resp, data;
+        try {
+          resp = await fetch('/api/fs/upload', {method: 'POST', body: fd});
+          data = await resp.json();
+        } catch (err) {
+          setPathStatus(inputId, 'Upload failed: ' + err.message, 'error');
+          return;
+        }
+        if (!resp.ok) {
+          setPathStatus(inputId, 'Upload failed: ' + (data.error || ('HTTP ' + resp.status)), 'error');
+          return;
+        }
+        last = data;
+        setPathStatus(inputId, 'Copying ' + (i + 1) + '/' + dropped.length + ' - ' +
+          fsBaseOf(item.rel) + ' (' + fsSize(data.bytes) + ')', 'info');
+      }
+      if (!last) return;
+
+      const finalPath = kind === 'dir' ? last.root : last.path;
+      input.value = finalPath;
+      setPathStatus(inputId, 'Copied into portal_uploads: ' + finalPath, 'success');
+    }
+
+    function initPathZones() {
+      document.querySelectorAll('.path-zone').forEach(zone => {
+        const input = zone.querySelector('input[type="text"]');
+        if (!input || input.dataset.wired === '1') return;
+        input.dataset.wired = '1';
+        let depth = 0;
+        zone.addEventListener('dragenter', e => {
+          e.preventDefault();
+          depth++;
+          zone.classList.add('dragging');
+        });
+        zone.addEventListener('dragover', e => {
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        });
+        zone.addEventListener('dragleave', () => {
+          depth = Math.max(0, depth - 1);
+          if (!depth) zone.classList.remove('dragging');
+        });
+        zone.addEventListener('drop', e => {
+          depth = 0;
+          zone.classList.remove('dragging');
+          handlePathDrop(e, input.id);
+        });
+      });
     }
 
     async function triggerScript(scriptKey, payload) {
@@ -1224,9 +2055,18 @@ INDEX_TEMPLATE = """
       });
     }
 
+    // Returns the path, "" to run with the script default, or null to abort
+    function pathOrConfirm(inputId, label) {
+      const val = (document.getElementById(inputId).value || '').trim();
+      if (val) return val;
+      if (confirm('No ' + label + ' selected. OK = run with the built-in default, Cancel = abort.')) return '';
+      return null;
+    }
+
     // 2. Excel Import Trigger
     function executeExcelImport() {
-      const path = document.getElementById('excelFilePath').value.trim();
+      const path = pathOrConfirm('excelFilePath', 'Excel file');
+      if (path === null) return;
       triggerScript('import_kphc_excel_patients', {excel_path: path});
     }
 
@@ -1238,14 +2078,17 @@ INDEX_TEMPLATE = """
 
     // 4. PDF Pipeline Trigger
     function executePdfPipeline() {
-      const backup = document.getElementById('pdfBackupPath').value.trim();
-      const outDir = document.getElementById('pdfOutputDir').value.trim();
+      const backup = pathOrConfirm('pdfBackupPath', 'SQL backup archive');
+      if (backup === null) return;
+      const outDir = pathOrConfirm('pdfOutputDir', 'PDF output directory');
+      if (outDir === null) return;
       triggerScript('interactive_pdf_pipeline', {backup_file: backup, pdf_out_dir: outDir});
     }
 
     // 5. Attach Documents Trigger
     function executeAttachDocs() {
-      const pdfDir = document.getElementById('attachPdfDir').value.trim();
+      const pdfDir = pathOrConfirm('attachPdfDir', 'PDF directory');
+      if (pdfDir === null) return;
       triggerScript('attach_patient_documents', {pdf_dir: pdfDir});
     }
 
@@ -1294,7 +2137,22 @@ INDEX_TEMPLATE = """
       }
     }
 
+    // Path picker events (delegated so re-renders keep working)
+    document.getElementById('fsList').addEventListener('click', e => {
+      const row = e.target.closest('.fs-row');
+      if (row) fsPickRow(row);
+    });
+    document.getElementById('fsList').addEventListener('dblclick', e => {
+      const row = e.target.closest('.fs-row');
+      if (row && row.dataset.dir !== '1' && fsKind === 'file') fsConfirm();
+    });
+    document.getElementById('fsCrumb').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-p]');
+      if (btn) fsNavigate(btn.dataset.p);
+    });
+
     // Initial load
+    initPathZones();
     refreshSystemHealth();
   </script>
 </body>
