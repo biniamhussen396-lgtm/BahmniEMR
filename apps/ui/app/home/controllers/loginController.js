@@ -42,26 +42,38 @@ angular.module('bahmni.home')
                 // Server date and time is enforced system-wide; no mismatch warning needed
             });
 
+            // Branding saved from Admin -> Branding page wins over whiteLabel.json so the
+            // login screen always reflects the latest save, regardless of which request lands last.
+            var brandingApplied = false;
+
             localeService.getLoginText().then(function (response) {
-                $scope.logo = response.data.loginPage.logo;
+                if (!brandingApplied) {
+                    $scope.logo = response.data.loginPage.logo;
+                    if (response.data.loginPage && response.data.loginPage.footerText) $scope.footerText = response.data.loginPage.footerText;
+                    if (response.data.loginPage && response.data.loginPage.footerLink) $scope.footerLink = response.data.loginPage.footerLink;
+                    if (response.data.loginPage && response.data.loginPage.footerLogo) $scope.footerLogo = response.data.loginPage.footerLogo;
+                    if (response.data.homePage && response.data.homePage.browserTitle) $window.document.title = response.data.homePage.browserTitle;
+                }
                 $scope.bottomLogos = response.data.loginPage.bottomLogos;
                 $scope.headerText = response.data.loginPage.showHeaderText;
                 $scope.titleText = response.data.loginPage.showTitleText;
                 $scope.helpLink = response.data.helpLink.url;
-                if (response.data.loginPage && response.data.loginPage.footerText) $scope.footerText = response.data.loginPage.footerText;
-                if (response.data.loginPage && response.data.loginPage.footerLink) $scope.footerLink = response.data.loginPage.footerLink;
-                if (response.data.loginPage && response.data.loginPage.footerLogo) $scope.footerLogo = response.data.loginPage.footerLogo;
-                if (response.data.homePage && response.data.homePage.browserTitle) $window.document.title = response.data.homePage.browserTitle;
                 $rootScope.cookieExpirationTime = response.data.loggedInUrlCookieExpirationTimeInMinutes;
             });
 
             $http.get('/backup-api/branding', { ignoreErrors: true }).then(function (res) {
-                if (res.data) {
-                    if (res.data.footerText) $scope.footerText = res.data.footerText;
-                    if (res.data.footerLink) $scope.footerLink = res.data.footerLink;
-                    if (res.data.footerLogoUrl) $scope.footerLogo = res.data.footerLogoUrl;
-                    if (res.data.browserTitle) $window.document.title = res.data.browserTitle;
+                var branding = res.data;
+                if (!branding || !(branding.facilityName || branding.browserTitle)) {
+                    return;
                 }
+                brandingApplied = true;
+                if (branding.facilityName) $scope.brandingFacilityName = branding.facilityName;
+                if (branding.tagline) $scope.brandingTagline = branding.tagline;
+                if (branding.loginLogoUrl) $scope.logo = branding.loginLogoUrlWithCache || branding.loginLogoUrl;
+                if (branding.footerText) $scope.footerText = branding.footerText;
+                if (branding.footerLink) $scope.footerLink = branding.footerLink;
+                if (branding.footerLogoUrl) $scope.footerLogo = branding.footerLogoUrlWithCache || branding.footerLogoUrl;
+                if (branding.browserTitle) $window.document.title = branding.browserTitle;
             });
 
             localeService.getLocalesLangs().then(function (response) {

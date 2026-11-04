@@ -1,12 +1,12 @@
 <div class="clint-logo-wrapper">
     <img class="implementor-logo" ng-if="logo" ng-src="{{logo}}" >
-    <span ng-if="titleText" class="title_text"> {{'LOGIN_PAGE_TITLE_TEXT' | translate }} </span>
+    <span ng-if="titleText" class="title_text"> {{brandingTagline || ('LOGIN_PAGE_TITLE_TEXT' | translate)}} </span>
 </div>
 <div style="text-align:center;margin:12px 0 6px 0;"><server-date-time-header></server-date-time-header></div>
 
 <div class="login" ng-hide="showOTP">
     <div ng-if="headerText" class="emr-login-text" style="margin-top: -30px;">
-        <strong style="line-height: 30px;">{{'LOGIN_PAGE_HEADER_TEXT'| translate}} </strong>
+        <strong style="line-height: 30px;">{{brandingFacilityName || ('LOGIN_PAGE_HEADER_TEXT' | translate)}} </strong>
     </div>
     <br> 
     <header class="reg-header">

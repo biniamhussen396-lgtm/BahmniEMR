@@ -1165,7 +1165,9 @@ def save_branding_config(payload):
             try:
                 with open(idx_f, "r", encoding="utf-8") as f:
                     idx_html = f.read()
-                new_idx_html = re.sub(r'<title>.*?</title>', f'<title>{browser_title}</title>', idx_html, flags=re.IGNORECASE)
+                new_idx_html = re.sub(r'<title>.*?</title>',
+                                      lambda _m: '<title>' + browser_title.replace('&', '&amp;').replace('<', '&lt;') + '</title>',
+                                      idx_html, flags=re.IGNORECASE)
                 if new_idx_html != idx_html:
                     write_file_safe(idx_f, new_idx_html)
                     sync_file_to_bahmni_web(idx_f, f"/usr/local/apache2/htdocs/bahmni/{app_name}/index.html")
@@ -1206,6 +1208,27 @@ def save_branding_config(payload):
             sync_file_to_bahmni_web(reg_i18n_file, "/usr/local/apache2/htdocs/bahmni_config/openmrs/i18n/registration/locale_en.json")
         except Exception as e:
             log(f"Error updating registration locale_en.json: {e}")
+
+    # Update home app i18n overrides so the login screen title/header follows the branding
+    home_i18n_files = glob.glob(os.path.join(CONFIG_DIR, "openmrs", "i18n", "home", "locale_*.json"))
+    if not home_i18n_files:
+        home_i18n_files = [os.path.join(CONFIG_DIR, "openmrs", "i18n", "home", "locale_en.json")]
+    login_title = tagline or facility_name
+    for home_i18n_file in home_i18n_files:
+        try:
+            home_loc = {}
+            if os.path.isfile(home_i18n_file):
+                with open(home_i18n_file, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    home_loc = loaded
+            home_loc["BAHMNI_PAGE_TITLE_KEY"] = facility_name
+            home_loc["LOGIN_PAGE_HEADER_TEXT"] = facility_name
+            home_loc["LOGIN_PAGE_TITLE_TEXT"] = login_title
+            if write_file_safe(home_i18n_file, json.dumps(home_loc, indent=4, ensure_ascii=False)):
+                sync_file_to_bahmni_web(home_i18n_file, f"/usr/local/apache2/htdocs/bahmni_config/openmrs/i18n/home/{os.path.basename(home_i18n_file)}")
+        except Exception as e:
+            log(f"Error updating home locale {os.path.basename(home_i18n_file)}: {e}")
 
     # Update clinical dashboard.json & visit.json
     for json_name in ("dashboard.json", "visit.json"):
@@ -1778,6 +1801,7 @@ class BackupAPIHandler(BaseHTTPRequestHandler):
         content = json.dumps(data, indent=2).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
         self.send_header("Content-Length", str(len(content)))
         self._send_cors()
         self.end_headers()

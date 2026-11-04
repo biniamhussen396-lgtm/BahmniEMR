@@ -3,9 +3,9 @@
     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #00796d; padding-bottom: 12px; margin-bottom: 25px;">
         <div>
             <h2 style="margin: 0; color: #00796d; font-size: 24px; font-weight: 600;">
-                <i class="fa fa-database" style="margin-right: 10px;"></i>System Backup & Restore
+                <i class="fa fa-database" style="margin-right: 10px;"></i>System Backup
             </h2>
-            <p style="margin: 4px 0 0 0; color: #666; font-size: 14px;">Manage full system backups, database dumps, and disaster recovery restore operations.</p>
+            <p style="margin: 4px 0 0 0; color: #666; font-size: 14px;">Create full system backups and database dumps, download archives, and configure automatic backup schedules. Restoring a backup is done from the Implementation Portal at <strong>http://localhost:8001</strong>.</p>
         </div>
         <div>
             <button class="btn btn-secondary" ng-click="fetchBackups()" style="padding: 8px 16px; font-size: 14px; border-radius: 4px; cursor: pointer; border: 1px solid #ccc; background: #fff;">
@@ -97,79 +97,6 @@
                     style="width: 100%; padding: 12px; font-size: 15px; font-weight: 600; border-radius: 4px; background: #1976d2; color: #fff; border: none; cursor: pointer;">
                 <i class="fa fa-hdd-o" style="margin-right: 8px;"></i>Run Database Backup Now
             </button>
-        </div>
-    </div>
-
-    <!-- Upload & Restore from Downloaded File Section -->
-    <div ng-if="hasRestorePrivilege" style="background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 22px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); margin-bottom: 30px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <div style="display: flex; align-items: center;">
-                <div style="background: #ede9fe; color: #6d28d9; width: 44px; height: 44px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 22px; margin-right: 15px;">
-                    <i class="fa fa-cloud-upload"></i>
-                </div>
-                <div>
-                    <h3 style="margin: 0; color: #222; font-size: 18px; font-weight: 600;">Restore from Downloaded File / Upload Archive</h3>
-                    <span style="font-size: 13px; color: #666;">Upload an existing <code>.tar.gz</code> backup archive from your computer to restore databases &amp; volumes, or save to server archives.</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Hidden input for file selection -->
-        <input type="file" id="backupUploadInput" accept=".tar.gz,.tgz,application/gzip,application/x-tar" onchange="angular.element(this).scope().onFileSelected(this)" style="display: none;">
-
-        <!-- Drop / Select Zone when no file chosen -->
-        <div ng-if="!selectedUploadFile && !isUploading"
-             onclick="document.getElementById('backupUploadInput').click()"
-             style="border: 2px dashed #cbd5e0; border-radius: 8px; padding: 28px 20px; text-align: center; cursor: pointer; background: #f8fafc; transition: all 0.2s ease;">
-            <i class="fa fa-folder-open-o fa-2x" style="color: #6d28d9; margin-bottom: 8px;"></i>
-            <div style="font-size: 15px; font-weight: 600; color: #334155;">Click to select backup archive (.tar.gz) from your computer</div>
-            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Supports Bahmni Full System (.tar.gz) and Database-Only (.tar.gz) backups</div>
-        </div>
-
-        <!-- Selected File View -->
-        <div ng-if="selectedUploadFile && !isUploading" style="border: 1px solid #c7d2fe; background: #f5f3ff; border-radius: 8px; padding: 18px 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-                <div style="display: flex; align-items: center;">
-                    <i class="fa fa-file-archive-o fa-2x" style="color: #6d28d9; margin-right: 14px;"></i>
-                    <div>
-                        <div style="font-family: monospace; font-size: 14px; font-weight: 600; color: #1e1b4b;">{{selectedUploadFile.name}}</div>
-                        <div style="font-size: 12px; color: #4338ca; margin-top: 2px;">File Size: <strong>{{selectedUploadFile.size_mb}} MB</strong></div>
-                    </div>
-                </div>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <button class="btn btn-warning"
-                            ng-click="confirmUploadAndRestore()"
-                            ng-disabled="status.status === 'running'"
-                            style="padding: 9px 18px; font-size: 13px; font-weight: 600; border-radius: 4px; background: #ed8936; color: #fff; border: none; cursor: pointer;">
-                        <i class="fa fa-undo" style="margin-right: 6px;"></i>Upload &amp; Restore Now
-                    </button>
-                    <button class="btn btn-primary"
-                            ng-click="startUpload(false)"
-                            ng-disabled="status.status === 'running'"
-                            style="padding: 9px 18px; font-size: 13px; font-weight: 600; border-radius: 4px; background: #4f46e5; color: #fff; border: none; cursor: pointer;">
-                        <i class="fa fa-upload" style="margin-right: 6px;"></i>Upload to Archives Only
-                    </button>
-                    <button class="btn btn-secondary"
-                            ng-click="clearUpload()"
-                            style="padding: 9px 14px; font-size: 13px; border-radius: 4px; background: #fff; border: 1px solid #cbd5e0; color: #64748b; cursor: pointer;">
-                        <i class="fa fa-times"></i>
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Uploading Progress State -->
-        <div ng-if="isUploading" style="border: 1px solid #bfdbfe; background: #eff6ff; border-radius: 8px; padding: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <div style="font-size: 14px; font-weight: 600; color: #1e40af;">
-                    <i class="fa fa-spinner fa-spin" style="margin-right: 8px;"></i>Uploading {{selectedUploadFile.name}} ({{uploadProgress}}%)...
-                </div>
-                <span style="font-size: 13px; font-weight: bold; color: #1e40af;">{{uploadProgress}}%</span>
-            </div>
-            <div style="background: #dbeafe; border-radius: 4px; height: 12px; width: 100%; overflow: hidden; margin-top: 8px;">
-                <div style="background: #2563eb; height: 100%; transition: width 0.2s ease;" ng-style="{'width': uploadProgress + '%'}"></div>
-            </div>
-            <div style="font-size: 12px; color: #64748b; margin-top: 6px;">Uploading file directly to server. Please do not close or navigate away from this page.</div>
         </div>
     </div>
 
@@ -606,13 +533,6 @@
                            style="padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 4px; background: #3182ce; color: #fff; border: none; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; margin-right: 8px;">
                             <i class="fa fa-download" style="margin-right: 6px;"></i>Download
                         </a>
-                        <button class="btn btn-warning"
-                                ng-if="hasRestorePrivilege"
-                                ng-click="confirmRestore(backup)"
-                                ng-disabled="status.status === 'running'"
-                                style="padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 4px; background: #ed8936; color: #fff; border: none; cursor: pointer; margin-right: 8px;">
-                            <i class="fa fa-undo" style="margin-right: 6px;"></i>Restore
-                        </button>
                         <button class="btn btn-danger"
                                 ng-if="hasDeletePrivilege"
                                 ng-click="confirmDelete(backup)"
@@ -625,34 +545,6 @@
                 </tr>
             </tbody>
         </table>
-    </div>
-
-    <!-- Restore Confirmation Modal -->
-    <div ng-if="confirmModalVisible" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 9999;">
-        <div style="background: #fff; width: 520px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.25); overflow: hidden;">
-            <div style="background: #c53030; color: #fff; padding: 16px 20px; font-weight: 600; font-size: 18px; display: flex; align-items: center;">
-                <i class="fa fa-exclamation-triangle" style="margin-right: 10px; font-size: 22px;"></i>Confirm Database Restore
-            </div>
-            <div style="padding: 22px 24px; color: #2d3748; font-size: 14px; line-height: 1.6;">
-                <p style="margin: 0 0 12px 0;">
-                    You are about to restore the system from the following backup:
-                </p>
-                <div style="background: #edf2f7; padding: 10px 14px; border-radius: 4px; font-family: monospace; font-size: 13px; margin-bottom: 14px; word-break: break-all;">
-                    {{selectedForRestore.name}} <span ng-if="selectedForRestore.isUpload" style="color: #6d28d9; font-weight: bold;">({{selectedForRestore.size_mb}} MB - Uploaded Archive)</span>
-                </div>
-                <div style="background: #fff5f5; border: 1px solid #feb2b2; padding: 10px 14px; border-radius: 4px; color: #9b2c2c; font-size: 13px;">
-                    <strong>Warning:</strong> Restoring this archive will overwrite current database records with the backed-up data and restart application services. This action cannot be undone.
-                </div>
-            </div>
-            <div style="background: #f7fafc; padding: 14px 20px; display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid #e2e8f0;">
-                <button class="btn" ng-click="cancelRestore()" style="padding: 8px 18px; font-size: 14px; border-radius: 4px; border: 1px solid #cbd5e0; background: #fff; cursor: pointer;">
-                    Cancel
-                </button>
-                <button class="btn" ng-click="executeRestore()" style="padding: 8px 18px; font-size: 14px; font-weight: 600; border-radius: 4px; border: none; background: #c53030; color: #fff; cursor: pointer;">
-                    <i class="fa fa-undo" style="margin-right: 6px;"></i>Yes, Restore System
-                </button>
-            </div>
-        </div>
     </div>
 
     <!-- Delete Confirmation Modal -->

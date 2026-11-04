@@ -11,9 +11,6 @@ angular.module('admin')
                 logs: []
             };
             $scope.loading = true;
-            $scope.selectedForRestore = null;
-            $scope.confirmModalVisible = false;
-            $scope.hasRestorePrivilege = false;
             $scope.selectedForDelete = null;
             $scope.deleteModalVisible = false;
             $scope.hasDeletePrivilege = false;
@@ -55,7 +52,6 @@ angular.module('admin')
             var evaluatePrivileges = function () {
                 var user = $rootScope.currentUser;
                 if (!user) {
-                    $scope.hasRestorePrivilege = false;
                     $scope.hasDeletePrivilege = false;
                     return;
                 }
@@ -70,14 +66,6 @@ angular.module('admin')
                               userRoles.indexOf('System Developer') !== -1 ||
                               userRoles.indexOf('Privilege Level: Full') !== -1 ||
                               (user.username && (user.username === 'admin' || user.username === 'superman'));
-
-                if (isSuper ||
-                    userPrivileges.indexOf('app:admin:restore') !== -1 ||
-                    userPrivileges.indexOf('app:admin:backupRestore:restore') !== -1) {
-                    $scope.hasRestorePrivilege = true;
-                } else {
-                    $scope.hasRestorePrivilege = false;
-                }
 
                 if (isSuper ||
                     userPrivileges.indexOf('app:admin:deleteBackup') !== -1 ||
@@ -185,163 +173,6 @@ angular.module('admin')
                     $scope.status.status = 'error';
                     var msg = (err.data && typeof err.data === 'object' && (err.data.message || err.data.error)) || 'Failed to start database backup. Backup Service is unreachable.';
                     $scope.status.message = msg;
-                });
-            };
-
-            // File Upload State
-            $scope.selectedUploadFile = null;
-            $scope.isUploading = false;
-            $scope.uploadProgress = 0;
-            $scope.restoreFromUpload = false;
-
-            $scope.onFileSelected = function (element) {
-                if (!element || !element.files || element.files.length === 0) return;
-                var file = element.files[0];
-                var name = file.name || '';
-                if (!name.endsWith('.tar.gz') && !name.endsWith('.tgz')) {
-                    messagingService.showMessage('error', 'Please select a valid Bahmni backup archive (*.tar.gz).');
-                    element.value = '';
-                    return;
-                }
-                $scope.$applyAsync(function () {
-                    $scope.selectedUploadFile = {
-                        name: file.name,
-                        size_mb: (file.size / (1024 * 1024)).toFixed(2),
-                        file: file
-                    };
-                });
-            };
-
-            $scope.clearUpload = function () {
-                $scope.selectedUploadFile = null;
-                $scope.isUploading = false;
-                $scope.uploadProgress = 0;
-                $scope.restoreFromUpload = false;
-                var input = document.getElementById('backupUploadInput');
-                if (input) input.value = '';
-            };
-
-            $scope.confirmUploadAndRestore = function () {
-                if (!$scope.hasRestorePrivilege) {
-                    messagingService.showMessage('error', 'Access denied: You do not have permission to restore system backups (app:admin:restore required).');
-                    return;
-                }
-                if (!$scope.selectedUploadFile || $scope.status.status === 'running') return;
-                $scope.restoreFromUpload = true;
-                $scope.selectedForRestore = {
-                    name: $scope.selectedUploadFile.name,
-                    size_mb: $scope.selectedUploadFile.size_mb,
-                    isUpload: true
-                };
-                $scope.confirmModalVisible = true;
-            };
-
-            $scope.startUpload = function (andRestore) {
-                if (!$scope.selectedUploadFile || $scope.isUploading) return;
-                if (andRestore && !$scope.hasRestorePrivilege) {
-                    messagingService.showMessage('error', 'Access denied: You do not have permission to restore system backups (app:admin:restore required).');
-                    return;
-                }
-                var fileObj = $scope.selectedUploadFile.file;
-                $scope.isUploading = true;
-                $scope.uploadProgress = 0;
-
-                var url = API_BASE + '/upload?filename=' + encodeURIComponent(fileObj.name) + (andRestore ? '&restore=true' : '');
-
-                var xhr = new XMLHttpRequest();
-                xhr.open('POST', url, true);
-                xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-                xhr.setRequestHeader('X-File-Name', encodeURIComponent(fileObj.name));
-                if (andRestore) {
-                    xhr.setRequestHeader('X-Restore-Now', 'true');
-                }
-
-                xhr.upload.onprogress = function (e) {
-                    if (e.lengthComputable) {
-                        $scope.$applyAsync(function () {
-                            $scope.uploadProgress = Math.round((e.loaded * 100) / e.total);
-                        });
-                    }
-                };
-
-                xhr.onload = function () {
-                    $scope.$applyAsync(function () {
-                        $scope.isUploading = false;
-                        if (xhr.status >= 200 && xhr.status < 300) {
-                            var resp = {};
-                            try { resp = JSON.parse(xhr.responseText); } catch (e) {}
-                            $scope.clearUpload();
-                            $scope.fetchBackups();
-                            if (andRestore) {
-                                messagingService.showMessage('info', 'File uploaded! System restore in progress.');
-                                $scope.status.status = 'running';
-                                $scope.status.message = 'Restoring from uploaded archive ' + fileObj.name + '...';
-                                $scope.status.progress = 10;
-                                startPolling();
-                            } else {
-                                messagingService.showMessage('info', resp.message || 'Backup archive uploaded successfully.');
-                            }
-                        } else {
-                            var errResp = {};
-                            try { errResp = JSON.parse(xhr.responseText); } catch (e) {}
-                            var errMessage = errResp.error || errResp.message || ('Upload failed with HTTP status ' + xhr.status);
-                            messagingService.showMessage('error', errMessage);
-                        }
-                    });
-                };
-
-                xhr.onerror = function () {
-                    $scope.$applyAsync(function () {
-                        $scope.isUploading = false;
-                        messagingService.showMessage('error', 'Network error encountered during backup file upload.');
-                    });
-                };
-
-                xhr.send(fileObj);
-            };
-
-            $scope.confirmRestore = function (backup) {
-                if (!$scope.hasRestorePrivilege) {
-                    messagingService.showMessage('error', 'Access denied: You do not have permission to restore system backups (app:admin:restore required).');
-                    return;
-                }
-                if ($scope.status.status === 'running') return;
-                $scope.selectedForRestore = backup;
-                $scope.confirmModalVisible = true;
-            };
-
-            $scope.cancelRestore = function () {
-                $scope.selectedForRestore = null;
-                $scope.confirmModalVisible = false;
-                $scope.restoreFromUpload = false;
-            };
-
-            $scope.executeRestore = function () {
-                if (!$scope.selectedForRestore) return;
-                if (!$scope.hasRestorePrivilege) {
-                    messagingService.showMessage('error', 'Access denied: You do not have permission to restore system backups (app:admin:restore required).');
-                    return;
-                }
-                var backup = $scope.selectedForRestore;
-                $scope.confirmModalVisible = false;
-
-                if (backup.isUpload && $scope.selectedUploadFile) {
-                    $scope.startUpload(true);
-                    return;
-                }
-
-                $scope.status.status = 'running';
-                $scope.status.progress = 5;
-                $scope.status.message = 'Restoring from ' + backup.name + '...';
-                $scope.status.logs = ['[INFO] Initiating restore from ' + backup.name];
-                startPolling();
-
-                $http.post(API_BASE + '/restore', {archive: backup.name}).then(function (response) {
-                    messagingService.showMessage('info', 'Restore process initiated.');
-                }, function (err) {
-                    stopPolling();
-                    $scope.status.status = 'error';
-                    $scope.status.message = (err.data && err.data.error) || (err.data && err.data.message) || 'Failed to start restore';
                 });
             };
 

@@ -22,8 +22,10 @@ import uuid
 import secrets
 import subprocess
 import threading
+import http.client
 from functools import wraps
 from datetime import datetime
+from urllib.parse import quote, urlparse
 from flask import (
     Flask, request, session, redirect, url_for,
     render_template_string, jsonify, Response, send_file
@@ -380,6 +382,161 @@ def api_cancel():
             except Exception as e:
                 return jsonify({"success": False, "error": str(e)}), 500
     return jsonify({"success": False, "message": "No running process to cancel."})
+
+
+# ---------------------------------------------------------------------------
+# Backup & Restore proxy  (restore was moved here from the Bahmni admin page)
+# Proxies to the backup service: bahmni-backup-service on 127.0.0.1:5055
+# ---------------------------------------------------------------------------
+BACKUP_API_URL = os.environ.get("BACKUP_API_URL", "http://127.0.0.1:5055").rstrip("/")
+_backup_parts = urlparse(BACKUP_API_URL)
+BACKUP_API_HOST = _backup_parts.hostname or "127.0.0.1"
+BACKUP_API_PORT = _backup_parts.port or 80
+BACKUP_API_BASE = (_backup_parts.path or "").rstrip("")
+
+
+def _backup_request(method, path, body=None, timeout=30):
+    """Send a JSON request to the backup service. Returns (status, dict)."""
+    conn = http.client.HTTPConnection(BACKUP_API_HOST, BACKUP_API_PORT, timeout=timeout)
+    try:
+        payload = None
+        headers = {"Accept": "application/json"}
+        if body is not None:
+            payload = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        conn.request(method, BACKUP_API_BASE + path, body=payload, headers=headers)
+        resp = conn.getresponse()
+        raw = resp.read()
+        try:
+            data = json.loads(raw.decode("utf-8")) if raw else {}
+        except Exception:
+            data = {"raw": raw.decode("utf-8", "replace")[:2000]}
+        return resp.status, data
+    finally:
+        conn.close()
+
+
+def _backup_unreachable(exc):
+    return jsonify({
+        "success": False,
+        "error": f"Backup service unreachable at {BACKUP_API_URL}: {exc}"
+    }), 502
+
+
+@app.route("/api/backups")
+@require_openelis_maintenance
+def api_backups_list():
+    try:
+        status, data = _backup_request("GET", "/backups")
+    except Exception as e:
+        return _backup_unreachable(e)
+    return jsonify(data), status
+
+
+@app.route("/api/backup/status")
+@require_openelis_maintenance
+def api_backup_status():
+    try:
+        status, data = _backup_request("GET", "/status")
+    except Exception as e:
+        return _backup_unreachable(e)
+    return jsonify(data), status
+
+
+@app.route("/api/restore", methods=["POST"])
+@require_openelis_maintenance
+def api_backup_restore():
+    payload = request.get_json(silent=True) or {}
+    archive = os.path.basename(str(payload.get("archive", "")).strip())
+    if not archive or not (archive.endswith(".tar.gz") or archive.endswith(".tgz")):
+        return jsonify({"success": False, "error": "Invalid backup archive name"}), 400
+    try:
+        # restore kicks off an async job on the backup service and returns fast
+        status, data = _backup_request("POST", "/restore", body={"archive": archive}, timeout=15)
+    except Exception as e:
+        return _backup_unreachable(e)
+    return jsonify(data), status
+
+
+@app.route("/api/backup/upload", methods=["POST"])
+@require_openelis_maintenance
+def api_backup_upload():
+    """Stream an uploaded archive through to the backup service (no buffering)."""
+    filename = request.args.get("filename", "") or request.headers.get("X-File-Name", "")
+    restore_now = (request.args.get("restore", "") or request.headers.get("X-Restore-Now", "")).lower() in ("1", "true", "yes")
+    content_length = request.content_length or 0
+    if content_length <= 0:
+        return jsonify({"success": False, "error": "Content-Length header required for upload"}), 400
+
+    # The backup service only lists/restores archives matching bahmni_*.tar.gz,
+    # so normalise the name or the upload would be invisible (and unrestorable).
+    filename = os.path.basename(filename.strip()) or f"bahmni_uploaded_backup_{int(time.time())}.tar.gz"
+    if not filename.startswith("bahmni_"):
+        filename = "bahmni_" + filename
+
+    query = "?filename=" + quote(filename) + "&restore=" + ("true" if restore_now else "false")
+    conn = http.client.HTTPConnection(BACKUP_API_HOST, BACKUP_API_PORT, timeout=3600)
+    try:
+        conn.putrequest("POST", BACKUP_API_BASE + "/upload" + query)
+        conn.putheader("Content-Type", request.content_type or "application/gzip")
+        conn.putheader("Content-Length", str(content_length))
+        conn.putheader("X-Restore-Now", "true" if restore_now else "false")
+        conn.endheaders()
+        while True:
+            chunk = request.stream.read(1 << 20)
+            if not chunk:
+                break
+            conn.send(chunk)
+        resp = conn.getresponse()
+        raw = resp.read()
+        try:
+            data = json.loads(raw.decode("utf-8")) if raw else {}
+        except Exception:
+            data = {"success": False, "raw": raw.decode("utf-8", "replace")[:2000]}
+        return jsonify(data), resp.status
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Upload failed: {e}"}), 502
+    finally:
+        conn.close()
+
+
+@app.route("/api/backups/download/<path:name>")
+@require_openelis_maintenance
+def api_backup_download(name):
+    safe_name = os.path.basename(name.strip())
+    if not safe_name or not safe_name.endswith(".tar.gz"):
+        return jsonify({"error": "Invalid backup archive filename"}), 400
+    try:
+        conn = http.client.HTTPConnection(BACKUP_API_HOST, BACKUP_API_PORT, timeout=120)
+        conn.request("GET", BACKUP_API_BASE + "/download/" + quote(safe_name))
+        resp = conn.getresponse()
+        if resp.status != 200:
+            raw = resp.read()
+            conn.close()
+            try:
+                data = json.loads(raw.decode("utf-8"))
+            except Exception:
+                data = {"error": raw.decode("utf-8", "replace")[:500]}
+            return jsonify(data), resp.status
+        headers = {}
+        for h in ("Content-Type", "Content-Disposition", "Content-Length"):
+            value = resp.getheader(h)
+            if value:
+                headers[h] = value
+
+        def generate():
+            try:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                conn.close()
+
+        return Response(generate(), status=200, headers=headers)
+    except Exception as e:
+        return jsonify({"error": f"Download failed: {e}"}), 502
 
 
 # ---------------------------------------------------------------------------
@@ -1403,6 +1560,63 @@ INDEX_TEMPLATE = """
             </div>
           </div>
 
+          <!-- 6. Backup & Restore -->
+          <div class="accordion-item card mb-3">
+            <h2 class="accordion-header" id="headingBackup">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseBackup">
+                <i class="fa-solid fa-database text-warning me-2"></i>
+                <span class="fw-bold me-2">6. Backup &amp; Restore</span>
+                <span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-auto me-3">bahmni_backup_service</span>
+              </button>
+            </h2>
+            <div id="collapseBackup" class="accordion-collapse collapse" data-bs-parent="#toolsAccordion">
+              <div class="accordion-body">
+                <p class="text-muted small">
+                  Lists the system backup archives, lets you download them, upload an archive from your computer, and restore the system from an archive. Restoring replaces the current databases and volumes, then restarts the application containers &mdash; a typed confirmation is required.
+                </p>
+
+                <div class="d-flex gap-2 mb-3">
+                  <button class="btn btn-sm btn-outline-primary" onclick="loadBackups()"><i class="fa-solid fa-rotate me-1"></i> Refresh list</button>
+                  <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle align-self-center" id="backupStatusBadge">Idle</span>
+                </div>
+
+                <div class="table-responsive mb-3">
+                  <table class="table table-sm table-hover align-middle mb-0" id="backupTable">
+                    <thead class="table-light">
+                      <tr>
+                        <th>Archive</th>
+                        <th>Type</th>
+                        <th>Created</th>
+                        <th class="text-end">Size</th>
+                        <th class="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="backupRows">
+                      <tr><td colspan="5" class="text-muted small">Loading ...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="mb-2">
+                  <label class="form-label fw-semibold small">Upload a backup archive (.tar.gz)</label>
+                  <input type="file" class="form-control form-control-sm" id="backupFileInput" accept=".gz,.tgz">
+                  <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="backupRestoreNow">
+                    <label class="form-check-label small" for="backupRestoreNow">Restore immediately after upload</label>
+                  </div>
+                  <button class="btn btn-warning btn-sm mt-2" onclick="uploadBackup()" id="btnUploadBackup"><i class="fa-solid fa-upload me-1"></i> Upload archive</button>
+                  <div class="progress mt-2" id="backupUploadProgress" style="display: none; height: 18px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" id="backupUploadBar" role="progressbar" style="width: 0%">0%</div>
+                  </div>
+                </div>
+
+                <div class="alert alert-warning py-2 small mb-0">
+                  <i class="fa-solid fa-triangle-exclamation me-1"></i> A restore overwrites all current clinical data. Keep a fresh backup of the live system before restoring.
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
 
       </div>
@@ -1477,6 +1691,33 @@ INDEX_TEMPLATE = """
           </div>
           <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
           <button type="button" class="btn btn-sm btn-primary" id="fsConfirmBtn" onclick="fsConfirm()"><i class="fa-solid fa-check me-1"></i>Select</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Restore confirmation (typed) -->
+  <div class="modal fade" id="restoreModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header py-2 bg-danger text-white">
+          <h5 class="modal-title fw-bold"><i class="fa-solid fa-triangle-exclamation me-2"></i>Confirm System Restore</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-3">
+          <p class="small mb-2">You are about to restore the entire system from:</p>
+          <p class="fw-bold small bg-light border rounded p-2 mb-3" id="restoreArchiveName"></p>
+          <ul class="small text-danger ps-3 mb-3">
+            <li>All current clinical data will be replaced.</li>
+            <li>Application containers will be restarted.</li>
+            <li>This cannot be undone.</li>
+          </ul>
+          <label class="form-label fw-semibold small text-danger">Safety Confirmation (Type "RESTORE")</label>
+          <input type="text" class="form-control form-control-sm" id="restoreConfirmInput" placeholder="Type RESTORE to confirm" oninput="document.getElementById('btnConfirmRestore').disabled = this.value.trim() !== 'RESTORE';">
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-sm btn-danger" id="btnConfirmRestore" disabled onclick="executeRestore()"><i class="fa-solid fa-database me-1"></i> Restore now</button>
         </div>
       </div>
     </div>
@@ -1939,6 +2180,10 @@ INDEX_TEMPLATE = """
         alert("A script is already currently running. Please wait for it to complete.");
         return;
       }
+      if (typeof backupBusy !== 'undefined' && backupBusy) {
+        alert("A backup/restore operation is running. Please wait for it to complete.");
+        return;
+      }
 
       clearConsole();
       appendTerminal(`[*] Initializing request for ${scriptKey}...`);
@@ -2092,6 +2337,208 @@ INDEX_TEMPLATE = """
       triggerScript('attach_patient_documents', {pdf_dir: pdfDir});
     }
 
+    // 6. Backup & Restore (proxied to the backup service)
+    let backupBusy = false;
+    let backupPollInterval = null;
+    let backupLogOffset = 0;
+
+    function backupEsc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+        {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    }
+
+    function updateBackupBadge(st) {
+      const badge = document.getElementById('backupStatusBadge');
+      if (!st) { badge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle'; badge.textContent = 'Idle'; return; }
+      if (st.status === 'running') {
+        badge.className = 'badge bg-warning text-dark';
+        badge.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> ' + backupEsc(st.type || 'working') + ' ' + (st.progress || 0) + '%';
+      } else if (st.status === 'completed') {
+        badge.className = 'badge bg-success';
+        badge.textContent = 'Last op: completed';
+      } else if (st.status === 'error') {
+        badge.className = 'badge bg-danger';
+        badge.textContent = 'Last op: failed';
+      } else {
+        badge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle';
+        badge.textContent = 'Idle';
+      }
+    }
+
+    async function loadBackups() {
+      const body = document.getElementById('backupRows');
+      body.innerHTML = '<tr><td colspan="5" class="text-muted small">Loading ...</td></tr>';
+      try {
+        const resp = await fetch('/api/backups');
+        const data = await resp.json();
+        if (!resp.ok) {
+          body.innerHTML = '<tr><td colspan="5" class="text-danger small">' + backupEsc(data.error || 'Failed to load backups') + '</td></tr>';
+          return;
+        }
+        renderBackups(data.backups || []);
+        updateBackupBadge(data.status);
+        if (data.status && data.status.status === 'running' && !backupPollInterval) {
+          backupBusy = true;
+          startBackupPolling();
+        }
+      } catch (err) {
+        body.innerHTML = '<tr><td colspan="5" class="text-danger small">' + backupEsc(err.message) + '</td></tr>';
+      }
+    }
+
+    function renderBackups(list) {
+      const body = document.getElementById('backupRows');
+      if (!list.length) {
+        body.innerHTML = '<tr><td colspan="5" class="text-muted small">No backup archives found. Create one from the Bahmni admin Backup page.</td></tr>';
+        return;
+      }
+      body.innerHTML = list.map(b => (
+        '<tr>' +
+          '<td class="small text-break"><i class="fa-solid fa-file-zipper me-1 text-secondary"></i>' + backupEsc(b.name) + '</td>' +
+          '<td class="small">' + backupEsc(b.type || '') + '</td>' +
+          '<td class="small text-nowrap">' + backupEsc(b.modified || '') + '</td>' +
+          '<td class="small text-end text-nowrap">' + (b.size_mb != null ? b.size_mb + ' MB' : '') + '</td>' +
+          '<td class="text-end text-nowrap">' +
+            '<a class="btn btn-sm btn-outline-primary me-1" href="/api/backups/download/' + encodeURIComponent(b.name) + '"><i class="fa-solid fa-download me-1"></i> Download</a>' +
+            '<button class="btn btn-sm btn-warning" data-name="' + backupEsc(b.name) + '" onclick="openRestoreModal(this.dataset.name)"' + (backupBusy ? ' disabled' : '') + '><i class="fa-solid fa-database me-1"></i> Restore</button>' +
+          '</td>' +
+        '</tr>'
+      )).join('');
+    }
+
+    function openRestoreModal(name) {
+      if (backupBusy) { alert('A backup/restore operation is already running. Please wait for it to finish.'); return; }
+      const label = document.getElementById('restoreArchiveName');
+      label.textContent = name;
+      label.dataset.archive = name;
+      const inp = document.getElementById('restoreConfirmInput');
+      inp.value = '';
+      document.getElementById('btnConfirmRestore').disabled = true;
+      new bootstrap.Modal(document.getElementById('restoreModal')).show();
+    }
+
+    async function executeRestore() {
+      const name = document.getElementById('restoreArchiveName').dataset.archive;
+      if (!name) return;
+      bootstrap.Modal.getInstance(document.getElementById('restoreModal')).hide();
+      if (isExecuting) { alert('A script is currently running. Wait for it to finish before restoring.'); return; }
+      clearConsole();
+      appendTerminal('[*] Requesting restore from ' + name + ' ...');
+      try {
+        const resp = await fetch('/api/restore', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({archive: name})
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          appendTerminal('[!] ' + (data.error || data.message || 'Restore failed to start'));
+          alert(data.error || data.message || 'Restore failed to start');
+          return;
+        }
+        appendTerminal('[*] ' + (data.message || 'Restore started.'));
+        backupBusy = true;
+        startBackupPolling();
+      } catch (err) {
+        appendTerminal('[!] Network Error: ' + err.message);
+      }
+    }
+
+    function uploadBackup() {
+      const input = document.getElementById('backupFileInput');
+      const file = input.files && input.files[0];
+      if (!file) { alert('Choose a backup archive (.tar.gz) first.'); return; }
+      const restoreNow = document.getElementById('backupRestoreNow').checked;
+      if (restoreNow && !confirm('Upload "' + file.name + '" and restore the system from it immediately?')) return;
+      if (restoreNow && isExecuting) { alert('A script is currently running. Wait for it to finish before restoring.'); return; }
+      if (backupBusy) { alert('A backup/restore operation is already running. Please wait for it to finish.'); return; }
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/backup/upload?filename=' + encodeURIComponent(file.name) + '&restore=' + (restoreNow ? 'true' : 'false'));
+      xhr.setRequestHeader('Content-Type', 'application/gzip');
+      const bar = document.getElementById('backupUploadBar');
+      const wrap = document.getElementById('backupUploadProgress');
+      wrap.style.display = 'block';
+      bar.style.width = '0%';
+      bar.textContent = '0%';
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) {
+          const pct = Math.round(e.loaded / e.total * 100);
+          bar.style.width = pct + '%';
+          bar.textContent = pct + '%';
+        }
+      };
+      xhr.onload = () => {
+        wrap.style.display = 'none';
+        let data = {};
+        try { data = JSON.parse(xhr.responseText); } catch (e) { /* non-JSON response */ }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          alert(data.message || 'Upload complete.');
+          if (data.restoring) {
+            clearConsole();
+            appendTerminal('[*] ' + (data.message || 'Restore started after upload.'));
+            backupBusy = true;
+            startBackupPolling();
+          } else {
+            loadBackups();
+          }
+        } else {
+          alert(data.error || data.raw || ('Upload failed (HTTP ' + xhr.status + ')'));
+        }
+      };
+      xhr.onerror = () => {
+        wrap.style.display = 'none';
+        alert('Upload failed: network error');
+      };
+      appendTerminal('[*] Uploading ' + file.name + (restoreNow ? ' (restore starts after upload)' : '') + ' ...');
+      xhr.send(file);
+    }
+
+    function startBackupPolling() {
+      if (backupPollInterval) clearInterval(backupPollInterval);
+      backupLogOffset = 0;
+      updateBackupBadge({status: 'running', type: 'starting', progress: 0});
+      backupPollInterval = setInterval(async () => {
+        try {
+          const resp = await fetch('/api/backup/status');
+          if (!resp.ok) return;
+          const st = await resp.json();
+
+          const logs = st.logs || [];
+          if (logs.length < backupLogOffset) backupLogOffset = 0;   // new op reset the buffer
+          if (logs.length > backupLogOffset) {
+            const term = document.getElementById('terminalOutput');
+            logs.slice(backupLogOffset).forEach(line => { term.textContent += line + '\\n'; });
+            term.scrollTop = term.scrollHeight;
+            backupLogOffset = logs.length;
+            document.getElementById('logCounter').textContent = backupLogOffset + ' lines';
+          }
+
+          updateBackupBadge(st);
+          const taskInfo = document.getElementById('consoleTaskInfo');
+
+          if (st.status === 'running') {
+            taskInfo.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-warning me-1"></i> ' + backupEsc(st.type || 'backup') + ': ' + (st.progress || 0) + '%';
+          } else if (st.status === 'completed') {
+            clearInterval(backupPollInterval); backupPollInterval = null;
+            backupBusy = false;
+            taskInfo.innerHTML = '<i class="fa-solid fa-circle-check text-success me-1"></i> ' + backupEsc(st.type || 'operation') + ' completed';
+            appendTerminal('[*] ' + (st.message || 'Operation completed.'));
+            loadBackups();
+            refreshSystemHealth();
+          } else if (st.status === 'error') {
+            clearInterval(backupPollInterval); backupPollInterval = null;
+            backupBusy = false;
+            taskInfo.innerHTML = '<i class="fa-solid fa-circle-xmark text-danger me-1"></i> ' + backupEsc(st.type || 'operation') + ' failed';
+            appendTerminal('[!] ' + (st.message || 'Operation failed.'));
+            loadBackups();
+          }
+        } catch (e) {
+          console.error('Backup poll error:', e);
+        }
+      }, 1000);
+    }
+
     // Refresh System Health Checks
     async function refreshSystemHealth() {
       try {
@@ -2154,6 +2601,7 @@ INDEX_TEMPLATE = """
     // Initial load
     initPathZones();
     refreshSystemHealth();
+    loadBackups();
   </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 <div class="clint-logo-wrapper">
     <img class="implementor-logo" ng-src="{{logo}}" >
-    <span ng-if="titleText" class="title_text"> {{'LOGIN_LOCATION_PAGE_TITLE_TEXT' | translate }} </span>
+    <span ng-if="titleText" class="title_text"> {{brandingTagline || ('LOGIN_LOCATION_PAGE_TITLE_TEXT' | translate)}} </span>
 </div>
 
 <div class="login">

@@ -1,4 +1,4 @@
-    {
+{
     "MODULE_LABEL_REGISTRATION_KEY": "Registrierung",
     "MODULE_LABEL_CLINICAL_KEY": "Klinisch",
     "MODULE_LABEL_INPATIENT_KEY": "InPatient",
@@ -13,5 +13,8 @@
     "MODULE_LABEL_ATOMFEED_CONSOLE_KEY": "AtomFeed Console",
     "MODULE_LABEL_APPOINTMENT_SCHEDULING_KEY": "Appointment Scheduling",
     "MODULE_LABEL_BED_MANAGEMENT_KEY": "Bed Management",
-    "MODULE_LABEL_LAB_ENTRY_KEY": "Lab entry"
+    "MODULE_LABEL_LAB_ENTRY_KEY": "Lab entry",
+    "BAHMNI_PAGE_TITLE_KEY": "Dessie HC",
+    "LOGIN_PAGE_HEADER_TEXT": "Dessie HC",
+    "LOGIN_PAGE_TITLE_TEXT": "HC EMR System"
 }
