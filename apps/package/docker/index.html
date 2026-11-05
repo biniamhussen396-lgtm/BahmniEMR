@@ -5,7 +5,8 @@
 	<meta charset="UTF-8" />
 	<meta name="robots" content="noindex,nofollow" />
 	<meta name="googlebot" content="noindex,nofollow" />
-	<title>BORU MEDA GENERAL HOSPITAL</title>
+	<title>Bahmni</title>
+	<link rel="icon" type="image/x-icon" href="/bahmni/favicon.ico" />
 	<style>
 		html {
 			overflow: auto;
@@ -174,6 +175,28 @@
 			initServerClock();
 			getLogoAndHeaderText();
 			getApps();
+			syncBranding();
+		}
+
+		function syncBranding() {
+			// Keep the browser tab title and favicon in sync with the
+			// branding app (saved values live in branding.json).
+			callAjax("/bahmni_config/openmrs/apps/branding.json", function (data) {
+				if (!data) return;
+				var title = data.browserTitle || data.facilityName;
+				if (title) {
+					document.title = title;
+				}
+				var icon = data.faviconUrl || "/bahmni/favicon.ico";
+				var link = document.querySelector("link[rel~='icon']");
+				if (!link) {
+					link = document.createElement("link");
+					link.rel = "icon";
+					link.type = "image/x-icon";
+					document.head.appendChild(link);
+				}
+				link.href = icon;
+			});
 		}
 
 		function callAjax(url, callback) {
@@ -193,16 +216,32 @@
 
 		var serverOffset = 0;
 		function initServerClock() {
-			callAjax("/cgi-bin/systemdate", function (data) {
-				if (data && data.date) {
-					var sTime = new Date(data.date).getTime();
-					if (!isNaN(sTime)) {
-						serverOffset = sTime - Date.now();
+			// Start ticking right away (browser time), then refine with the
+			// server clock if/when /cgi-bin/systemdate answers. This way a
+			// failed CGI call can never leave the pills stuck on
+			// "Loading server time...".
+			updateServerClock();
+			setInterval(updateServerClock, 1000);
+
+			var xmlhttp = new XMLHttpRequest();
+			xmlhttp.onreadystatechange = function () {
+				if (xmlhttp.readyState == 4) {
+					if (xmlhttp.status == 200) {
+						try {
+							var data = JSON.parse(xmlhttp.responseText);
+							if (data && data.date) {
+								var sTime = new Date(data.date).getTime();
+								if (!isNaN(sTime)) {
+									serverOffset = sTime - Date.now();
+									updateServerClock();
+								}
+							}
+						} catch (ex) { /* keep browser time */ }
 					}
 				}
-				updateServerClock();
-				setInterval(updateServerClock, 1000);
-			});
+			};
+			xmlhttp.open("GET", "/cgi-bin/systemdate", true);
+			xmlhttp.send();
 		}
 
 		function toEthiopianDate(d) {
