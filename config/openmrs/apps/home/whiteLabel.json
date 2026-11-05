@@ -3,7 +3,7 @@
     "header_text": "<b>WELCOME TO Dessie HC EMR System</b>",
     "logo": "/bahmni_config/openmrs/apps/home/logo.png",
     "title_text": "HC EMR System",
-    "browserTitle": "bahmni"
+    "browserTitle": "Bahmni"
   },
   "loginPage": {
     "logo": "/bahmni_config/openmrs/apps/home/logo.png",
