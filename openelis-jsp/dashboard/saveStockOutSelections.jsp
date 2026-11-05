@@ -55,7 +55,28 @@
             }
         }
         if (selections == null && selParam != null && !selParam.trim().isEmpty()) {
-            try { selections = new JSONArray(selParam.trim()); } catch (Exception ignore) {}
+            String sp = selParam.trim();
+            // selParam might be the entire JSON envelope (from Prototype.js parameters)
+            if (sp.startsWith("{")) {
+                try {
+                    JSONObject envelope = new JSONObject(sp);
+                    Object selObj2 = envelope.opt("selections");
+                    if (selObj2 instanceof JSONArray) {
+                        selections = (JSONArray) selObj2;
+                    } else if (selObj2 instanceof String) {
+                        selections = new JSONArray(((String) selObj2).trim());
+                    }
+                    if (orderId.isEmpty()) {
+                        orderId = envelope.optString("orderId", "").trim();
+                    }
+                    if (envelope.has("confirmNow")) {
+                        confirmNow = envelope.optBoolean("confirmNow", confirmNow);
+                    }
+                } catch (Exception ignore) {}
+            }
+            if (selections == null) {
+                try { selections = new JSONArray(sp); } catch (Exception ignore) {}
+            }
         }
 
         if (selections == null || selections.length() == 0) {
